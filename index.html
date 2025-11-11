@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MS SQL Практикум</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <header class="page-header">
+      <div class="page-header__inner">
+        <h1>Практические задания по MS SQL</h1>
+        <p>
+          Выполняйте задания, проверяйте результаты в браузере и отслеживайте прогресс.
+          Все вычисления происходят локально с помощью WebAssembly (sql.js).
+        </p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="layout__sidebar">
+        <div class="card">
+          <h2>Задания</h2>
+          <ul id="task-list" class="task-list"></ul>
+        </div>
+        <div class="card card--muted">
+          <h3>Статистика</h3>
+          <dl class="stats">
+            <div>
+              <dt>Всего заданий</dt>
+              <dd id="stat-total">0</dd>
+            </div>
+            <div>
+              <dt>Завершено на 100%</dt>
+              <dd id="stat-complete">0</dd>
+            </div>
+            <div>
+              <dt>Суммарный балл</dt>
+              <dd id="stat-score">0</dd>
+            </div>
+          </dl>
+          <button id="reset-progress" class="btn btn--ghost">
+            Сбросить прогресс
+          </button>
+        </div>
+      </aside>
+
+      <section class="layout__content">
+        <div class="card card--stretch">
+          <div class="task-header">
+            <div>
+              <p class="task-number" id="task-number">Задание</p>
+              <h2 id="task-title"></h2>
+            </div>
+            <div class="task-meta">
+              <span id="attempt-info" class="task-meta__item"></span>
+              <span id="best-score" class="task-meta__item"></span>
+            </div>
+          </div>
+
+          <div id="task-description" class="task-description"></div>
+
+          <div class="editor">
+            <label for="sql-input">SQL-запрос</label>
+            <textarea id="sql-input" rows="10" placeholder="Введите SQL-запрос для выбранного задания..."></textarea>
+          </div>
+
+          <div class="controls">
+            <div class="controls__left">
+              <button id="run-sql" class="btn btn--primary">Проверить</button>
+              <button id="show-solution" class="btn" disabled>Показать эталон</button>
+            </div>
+            <div class="controls__right" id="status-indicator"></div>
+          </div>
+
+          <div id="solution-panel" class="solution hidden">
+            <h3>Эталонное решение</h3>
+            <pre id="solution-sql"></pre>
+          </div>
+
+          <div id="feedback" class="feedback"></div>
+
+          <div id="score-breakdown" class="score"></div>
+
+          <div class="results-grid">
+            <div class="result-block">
+              <h3>Результат вашего запроса</h3>
+              <div id="user-result" class="table-wrapper empty">Нет данных</div>
+            </div>
+            <div class="result-block">
+              <h3>Ожидаемый результат</h3>
+              <div id="expected-result" class="table-wrapper empty">Нет данных</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="page-footer">
+      <p>
+        База данных на основе AdventureWorks (SQLite) загружается локально. Прогресс сохраняется в
+        <code>localStorage</code> вашего браузера.
+      </p>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js" integrity="sha512-ZNQbWkzdc6PniS1Xsmb+PYqpB4BM1vWs7iFdGVAVoBHqdUwoMh1t56rM0Bx1NGtzsEhJEoWEZqzM6wX6Rhye9w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="db/sample-db.js"></script>
+    <script src="tasks.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
