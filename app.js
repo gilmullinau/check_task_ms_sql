@@ -22,6 +22,8 @@
 
   const allTasks = days.flatMap((day) => day.tasks);
   const STORAGE_KEY = 'ms-sql-practice-progress';
+  const PROFILE_KEY = 'ms-sql-practice-profile';
+  const SUBMISSIONS_KEY = 'ms-sql-practice-submissions';
 
   const state = {
     SQL: null,
@@ -33,6 +35,8 @@
     currentDayId: days[0] ? days[0].id : null,
     currentTaskId: null,
     progress: {},
+    profile: { firstName: '', lastName: '', email: '' },
+    submissions: {},
     expectedCache: {},
   };
 
@@ -73,6 +77,11 @@
     elements.solutionSql = document.getElementById('solution-sql');
     elements.attemptInfo = document.getElementById('attempt-info');
     elements.bestScore = document.getElementById('best-score');
+    elements.profileFirstName = document.getElementById('profile-first-name');
+    elements.profileLastName = document.getElementById('profile-last-name');
+    elements.profileEmail = document.getElementById('profile-email');
+    elements.submitDayButton = document.getElementById('submit-day');
+    elements.submissionStatus = document.getElementById('submission-status');
   }
 
   function decodeBase64ToBytes(base64) {
@@ -92,10 +101,15 @@
   async function bootstrap() {
     elements.statTotal.textContent = state.allTasks.length.toString();
     loadProgress();
+    loadProfile();
+    loadSubmissions();
     renderStats();
     renderDayTabs();
     updateDayDescription();
     renderTaskList();
+    applyProfileToForm();
+    updateSubmitButtonState();
+    renderSubmissionStatus();
     attachEventListeners();
 
     setStatus('Загрузка sql.js…', 'status-warning');
@@ -149,6 +163,30 @@
     elements.resetButton.addEventListener('click', () => {
       resetProgress();
     });
+
+    if (elements.profileFirstName) {
+      elements.profileFirstName.addEventListener('input', (event) => {
+        handleProfileChange('firstName', event.target.value);
+      });
+    }
+
+    if (elements.profileLastName) {
+      elements.profileLastName.addEventListener('input', (event) => {
+        handleProfileChange('lastName', event.target.value);
+      });
+    }
+
+    if (elements.profileEmail) {
+      elements.profileEmail.addEventListener('input', (event) => {
+        handleProfileChange('email', event.target.value);
+      });
+    }
+
+    if (elements.submitDayButton) {
+      elements.submitDayButton.addEventListener('click', () => {
+        handleSubmitDay();
+      });
+    }
   }
 
   async function loadDatabase() {
@@ -201,6 +239,87 @@
     }
   }
 
+  function loadProfile() {
+    try {
+      const raw = localStorage.getItem(PROFILE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data && typeof data === 'object') {
+          state.profile = {
+            ...state.profile,
+            ...['firstName', 'lastName', 'email'].reduce((acc, key) => {
+              if (typeof data[key] === 'string') {
+                acc[key] = data[key];
+              }
+              return acc;
+            }, {}),
+          };
+        }
+      }
+    } catch (error) {
+      console.warn('Не удалось загрузить профиль', error);
+      state.profile = { firstName: '', lastName: '', email: '' };
+    }
+  }
+
+  function saveProfile() {
+    try {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(state.profile));
+    } catch (error) {
+      console.warn('Не удалось сохранить профиль', error);
+    }
+  }
+
+  function applyProfileToForm() {
+    if (elements.profileFirstName) {
+      elements.profileFirstName.value = state.profile.firstName || '';
+    }
+    if (elements.profileLastName) {
+      elements.profileLastName.value = state.profile.lastName || '';
+    }
+    if (elements.profileEmail) {
+      elements.profileEmail.value = state.profile.email || '';
+    }
+  }
+
+  function updateSubmitButtonState() {
+    if (!elements.submitDayButton) return;
+    const { valid } = validateProfile();
+    elements.submitDayButton.disabled = !valid;
+  }
+
+  function handleProfileChange(field, value) {
+    if (!state.profile) {
+      state.profile = { firstName: '', lastName: '', email: '' };
+    }
+    state.profile[field] = value;
+    saveProfile();
+    updateSubmitButtonState();
+  }
+
+  function loadSubmissions() {
+    try {
+      const raw = localStorage.getItem(SUBMISSIONS_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data && typeof data === 'object') {
+          state.submissions = data;
+        }
+      }
+    } catch (error) {
+      console.warn('Не удалось загрузить сохранённые отправки', error);
+      state.submissions = {};
+    }
+  }
+
+  function saveSubmissions() {
+    try {
+      localStorage.setItem(SUBMISSIONS_KEY, JSON.stringify(state.submissions));
+    } catch (error) {
+      console.warn('Не удалось сохранить информацию об отправках', error);
+    }
+  }
+
   function renderTaskList() {
     elements.taskList.innerHTML = '';
     if (!state.tasks.length) {
@@ -249,6 +368,7 @@
     updateDayDescription();
     renderTaskList();
     renderStats();
+    renderSubmissionStatus();
     if (state.tasks.length) {
       selectTask(state.tasks[0].id);
     } else {
@@ -667,6 +787,148 @@
     elements.statComplete.textContent = completed.toString();
   }
 
+  function renderSubmissionStatus(message = '', variant = 'info') {
+    if (!elements.submissionStatus) return;
+    const day = state.days.find((item) => item.id === state.currentDayId);
+    const record = day ? state.submissions[day.id] : null;
+    const history = day
+      ? record
+        ? `Последний экспорт: ${formatDateTime(record.timestamp)} · ${record.completedTasks}/${record.totalTasks} заданий · ${record.totalScore} / ${record.maxScore} баллов.`
+        : 'Для этого дня ещё не сохраняли результаты.'
+      : 'Выберите день, чтобы отправить результат.';
+    const allowedVariants = ['success', 'error'];
+    const statusVariant = allowedVariants.includes(variant) ? variant : 'info';
+    const variantClass =
+      statusVariant === 'info' ? 'submission-status__message' : `submission-status__message submission-status__message--${statusVariant}`;
+    const messageHtml = message
+      ? `<p class="${variantClass}">${escapeHtml(message)}</p>`
+      : '';
+    elements.submissionStatus.innerHTML = `
+      ${messageHtml}
+      <p class="submission-status__history">${escapeHtml(history)}</p>
+    `;
+  }
+
+  function handleSubmitDay() {
+    const day = state.days.find((item) => item.id === state.currentDayId);
+    if (!day) {
+      renderSubmissionStatus('Сначала выберите день с заданиями.', 'error');
+      return;
+    }
+    const validation = validateProfile();
+    if (!validation.valid) {
+      renderSubmissionStatus(validation.message, 'error');
+      return;
+    }
+
+    try {
+      const summary = buildDaySummary(day, validation.profile);
+      const timestamp = Date.now();
+      const fileName = `ms-sql-${day.id}-${timestamp}.json`;
+      downloadJson(summary, fileName);
+      state.submissions[day.id] = {
+        timestamp,
+        totalTasks: summary.day.totals.totalTasks,
+        completedTasks: summary.day.totals.completedTasks,
+        totalScore: summary.day.totals.totalScore,
+        maxScore: summary.day.totals.maxScore,
+        fileName,
+      };
+      saveSubmissions();
+      renderSubmissionStatus('Файл с результатами сохранён на ваш компьютер.', 'success');
+    } catch (error) {
+      console.error(error);
+      renderSubmissionStatus('Не удалось сформировать файл. Попробуйте ещё раз.', 'error');
+    }
+  }
+
+  function validateProfile() {
+    const firstName = (state.profile.firstName || '').trim();
+    const lastName = (state.profile.lastName || '').trim();
+    const email = (state.profile.email || '').trim();
+
+    if (!firstName) {
+      return { valid: false, message: 'Укажите имя.' };
+    }
+    if (!lastName) {
+      return { valid: false, message: 'Укажите фамилию.' };
+    }
+    if (!email) {
+      return { valid: false, message: 'Укажите почту.' };
+    }
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(email)) {
+      return { valid: false, message: 'Почта указана некорректно.' };
+    }
+
+    return { valid: true, profile: { firstName, lastName, email } };
+  }
+
+  function buildDaySummary(day, sanitizedProfile) {
+    const tasks = day.tasks.map((task) => {
+      const progress = state.progress[task.id] || {};
+      const bestScore = progress.bestScore || 0;
+      return {
+        id: task.id,
+        title: task.title,
+        bestScore,
+        attempts: progress.attempts || 0,
+        completed: bestScore >= 4,
+        lastSql: progress.lastSql || '',
+      };
+    });
+
+    const totals = tasks.reduce(
+      (acc, item) => {
+        acc.totalScore += item.bestScore;
+        if (item.completed) acc.completedTasks += 1;
+        return acc;
+      },
+      { totalScore: 0, completedTasks: 0 }
+    );
+
+    const totalTasks = tasks.length;
+    const maxScore = totalTasks * 4;
+
+    return {
+      profile: sanitizedProfile,
+      day: {
+        id: day.id,
+        title: day.title,
+        label: day.label,
+        totals: {
+          totalTasks,
+          completedTasks: totals.completedTasks,
+          totalScore: totals.totalScore,
+          maxScore,
+        },
+        tasks,
+      },
+      generatedAt: new Date().toISOString(),
+      appVersion: 'web-client',
+    };
+  }
+
+  function downloadJson(payload, fileName) {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function formatDateTime(timestamp) {
+    try {
+      return new Date(timestamp).toLocaleString('ru-RU');
+    } catch (error) {
+      return new Date().toLocaleString('ru-RU');
+    }
+  }
+
   function toggleSolution(show) {
     if (!state.currentTaskId) return;
     const task = state.tasks.find((item) => item.id === state.currentTaskId);
@@ -695,6 +957,7 @@
     resetDatabase();
     renderTaskList();
     renderStats();
+    renderSubmissionStatus();
     if (state.currentTaskId) {
       selectTask(state.currentTaskId);
     }

@@ -51,6 +51,32 @@
             Сбросить прогресс
           </button>
         </div>
+        <div class="card card--accent">
+          <h3>Отправка результатов</h3>
+          <p class="card__text">
+            Укажите ваши данные и выгружайте результат выбранного дня. Будет скачан
+            JSON-файл, который можно приложить к отчёту или загрузить в репозиторий.
+          </p>
+          <form class="profile-form" autocomplete="off">
+            <label>
+              <span>Имя</span>
+              <input id="profile-first-name" type="text" name="firstName" autocomplete="given-name" placeholder="Иван" />
+            </label>
+            <label>
+              <span>Фамилия</span>
+              <input id="profile-last-name" type="text" name="lastName" autocomplete="family-name" placeholder="Иванов" />
+            </label>
+            <label>
+              <span>Почта</span>
+              <input id="profile-email" type="email" name="email" autocomplete="email" placeholder="name@example.com" />
+            </label>
+          </form>
+          <button id="submit-day" class="btn btn--primary btn--block" type="button">
+            Отправить результаты дня
+          </button>
+          <p class="submission-hint">Собираются баллы и последний SQL по каждому заданию выбранного дня.</p>
+          <div id="submission-status" class="submission-status"></div>
+        </div>
       </aside>
 
       <section class="layout__content">
@@ -106,8 +132,8 @@
 
     <footer class="page-footer">
       <p>
-        База данных на основе AdventureWorks (SQLite) загружается локально. Прогресс сохраняется в
-        <code>localStorage</code> вашего браузера.
+        База данных на основе AdventureWorks (SQLite) загружается локально. Прогресс и контактные данные сохраняются в
+        <code>localStorage</code> вашего браузера, а результаты дня можно выгрузить в виде JSON-файла.
       </p>
     </footer>
 

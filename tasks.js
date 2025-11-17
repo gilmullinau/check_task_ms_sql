@@ -555,7 +555,7 @@ ORDER BY soh.SubTotal DESC, soh.SalesOrderID DESC;`,
     dayId: 'day3',
     title: 'Компоненты в спецификациях (BOM)',
     description: `
-      <p>Сформируйте список идентификаторов продуктов, которые используются в спецификациях <code>BillOfMaterials</code> как компоненты.</p>
+      <p>Сформируйте список идентификаторов продуктов, которые используются в спецификациях <code>BillOfMaterials</code> (BOM — Bill of Materials, «ведомость материалов» или спецификация состава изделия) как компоненты.</p>
       <p>Можно использовать любой подход: <code>DISTINCT</code>, <code>INTERSECT</code>, <code>IN</code>, <code>EXISTS</code>.</p>
     `,
     starterSql: `SELECT DISTINCT bom.ComponentID AS ProductID
@@ -576,7 +576,7 @@ ORDER BY ProductID;`,
     dayId: 'day3',
     title: 'Продукты вне спецификаций',
     description: `
-      <p>Выведите продукты, которые не используются как компоненты в спецификациях <code>BillOfMaterials</code>.</p>
+      <p>Выведите продукты, которые не используются как компоненты в спецификациях <code>BillOfMaterials</code> (BOM — Bill of Materials, «ведомость материалов»).</p>
       <p>Попробуйте разные варианты (например, <code>NOT IN</code>, <code>EXCEPT</code>, <code>NOT EXISTS</code>), но результат должен содержать список уникальных <code>ProductID</code>.</p>
     `,
     starterSql: `SELECT p.ProductID
@@ -1040,7 +1040,7 @@ window.TASK_DAYS = [
     id: 'day3',
     label: 'День 3',
     title: 'День 3 · Бизнес-сценарии Adventure Works',
-    description: 'Работаем с заказами и спецификациями: витрины заказов, BOM и оконные функции.',
+    description: 'Работаем с заказами и спецификациями: витрины заказов, BOM (Bill of Materials — спецификации состава изделий) и оконные функции.',
     tasks: DAY_THREE_TASKS,
   },
   {

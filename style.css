@@ -83,6 +83,20 @@ a {
   background: var(--surface-muted);
 }
 
+.card--accent {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 12px 30px rgba(14, 165, 233, 0.18);
+}
+
+.card__text {
+  margin-top: 0.35rem;
+  margin-bottom: 1rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  font-size: 0.9rem;
+}
+
 .card--stretch {
   height: 100%;
   display: flex;
@@ -253,6 +267,11 @@ h3 {
 
 .btn--ghost {
   background: rgba(148, 163, 184, 0.1);
+}
+
+.btn--block {
+  width: 100%;
+  text-align: center;
 }
 
 .task-header {
@@ -426,6 +445,66 @@ h3 {
   justify-content: center;
   color: var(--text-muted);
   font-style: italic;
+}
+
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.profile-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.profile-form input {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.55rem 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+  color: inherit;
+  font: inherit;
+}
+
+.profile-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15);
+}
+
+.submission-hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.submission-status {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.submission-status__message {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+}
+
+.submission-status__message--success {
+  color: var(--success);
+}
+
+.submission-status__message--error {
+  color: var(--danger);
+}
+
+.submission-status__history {
+  margin: 0;
+  line-height: 1.4;
 }
 
 .status-success {
