@@ -1,12 +1,36 @@
 (function () {
-  const TASKS = window.TASKS || [];
+  const hasDayConfig = Array.isArray(window.TASK_DAYS) && window.TASK_DAYS.length;
+  const rawDays = hasDayConfig
+    ? window.TASK_DAYS
+    : [
+        {
+          id: 'default',
+          label: 'Все задания',
+          title: 'Все задания',
+          description: '',
+          tasks: Array.isArray(window.TASKS) ? window.TASKS : [],
+        },
+      ];
+
+  const days = rawDays.map((day) => ({
+    id: day.id,
+    label: day.label || day.title || day.id,
+    title: day.title || day.label || day.id,
+    description: day.description || '',
+    tasks: (day.tasks || []).map((task) => ({ ...task, dayId: task.dayId || day.id })),
+  }));
+
+  const allTasks = days.flatMap((day) => day.tasks);
   const STORAGE_KEY = 'ms-sql-practice-progress';
 
   const state = {
     SQL: null,
     db: null,
     baseBytes: null,
-    tasks: TASKS,
+    days,
+    allTasks,
+    tasks: days[0] ? days[0].tasks : [],
+    currentDayId: days[0] ? days[0].id : null,
     currentTaskId: null,
     progress: {},
     expectedCache: {},
@@ -16,7 +40,7 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     cacheElements();
-    if (!TASKS.length) {
+    if (!state.allTasks.length) {
       displayFatalError('Не удалось загрузить список заданий. Проверьте файл tasks.js.');
       return;
     }
@@ -28,6 +52,8 @@
 
   function cacheElements() {
     elements.taskList = document.getElementById('task-list');
+    elements.daySwitcher = document.getElementById('day-switcher');
+    elements.dayDescription = document.getElementById('day-description');
     elements.statTotal = document.getElementById('stat-total');
     elements.statComplete = document.getElementById('stat-complete');
     elements.statScore = document.getElementById('stat-score');
@@ -64,9 +90,11 @@
   }
 
   async function bootstrap() {
-    elements.statTotal.textContent = state.tasks.length.toString();
+    elements.statTotal.textContent = state.allTasks.length.toString();
     loadProgress();
     renderStats();
+    renderDayTabs();
+    updateDayDescription();
     renderTaskList();
     attachEventListeners();
 
@@ -86,6 +114,14 @@
   }
 
   function attachEventListeners() {
+    if (elements.daySwitcher) {
+      elements.daySwitcher.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-day-id]');
+        if (!button) return;
+        selectDay(button.dataset.dayId);
+      });
+    }
+
     elements.taskList.addEventListener('click', (event) => {
       const button = event.target.closest('button[data-task-id]');
       if (!button) return;
@@ -167,6 +203,14 @@
 
   function renderTaskList() {
     elements.taskList.innerHTML = '';
+    if (!state.tasks.length) {
+      const empty = document.createElement('li');
+      empty.className = 'task-list__empty';
+      empty.textContent = 'Для выбранного дня нет заданий.';
+      elements.taskList.appendChild(empty);
+      return;
+    }
+
     state.tasks.forEach((task, index) => {
       const item = document.createElement('li');
       const button = document.createElement('button');
@@ -194,6 +238,73 @@
     });
   }
 
+  function selectDay(dayId) {
+    if (state.currentDayId === dayId) return;
+    const day = state.days.find((item) => item.id === dayId);
+    if (!day) return;
+    state.currentDayId = dayId;
+    state.tasks = day.tasks;
+    state.currentTaskId = null;
+    renderDayTabs();
+    updateDayDescription();
+    renderTaskList();
+    renderStats();
+    if (state.tasks.length) {
+      selectTask(state.tasks[0].id);
+    } else {
+      clearTaskContext();
+    }
+  }
+
+  function renderDayTabs() {
+    if (!elements.daySwitcher) return;
+    if (state.days.length <= 1) {
+      elements.daySwitcher.classList.add('hidden');
+      elements.daySwitcher.innerHTML = '';
+      return;
+    }
+
+    elements.daySwitcher.classList.remove('hidden');
+    elements.daySwitcher.innerHTML = state.days
+      .map((day) => {
+        const activeClass = day.id === state.currentDayId ? 'day-switcher__button--active' : '';
+        return `
+          <button type="button" class="day-switcher__button ${activeClass}" data-day-id="${day.id}">
+            ${escapeHtml(day.label || day.title)}
+          </button>
+        `;
+      })
+      .join('');
+  }
+
+  function updateDayDescription() {
+    if (!elements.dayDescription) return;
+    const day = state.days.find((item) => item.id === state.currentDayId);
+    if (day && day.description) {
+      elements.dayDescription.textContent = day.description;
+      elements.dayDescription.classList.remove('hidden');
+    } else {
+      elements.dayDescription.textContent = '';
+      elements.dayDescription.classList.add('hidden');
+    }
+  }
+
+  function clearTaskContext() {
+    elements.taskNumber.textContent = 'Задание';
+    elements.taskTitle.textContent = '';
+    elements.taskDescription.innerHTML = '';
+    elements.sqlInput.value = '';
+    elements.feedback.textContent = '';
+    elements.scoreBreakdown.innerHTML = '';
+    clearResultTables();
+    setStatus('Выберите задание', 'status-warning');
+    elements.solutionPanel.classList.add('hidden');
+    elements.solutionSql.textContent = '';
+    elements.showSolutionButton.disabled = true;
+    elements.attemptInfo.textContent = '';
+    elements.bestScore.textContent = '';
+  }
+
   function selectTask(taskId) {
     const task = state.tasks.find((item) => item.id === taskId);
     if (!task) return;
@@ -201,8 +312,11 @@
     state.currentTaskId = taskId;
     renderTaskList();
 
-    const index = state.tasks.findIndex((item) => item.id === taskId);
-    elements.taskNumber.textContent = `Задание ${index + 1}`;
+    const day = state.days.find((item) => item.id === task.dayId);
+    const dayTasks = day ? day.tasks : state.tasks;
+    const index = dayTasks.findIndex((item) => item.id === taskId);
+    const dayPrefix = day ? `${day.label || day.title} · ` : '';
+    elements.taskNumber.textContent = `${dayPrefix}Задание ${index + 1}`;
     elements.taskTitle.textContent = task.title;
     elements.taskDescription.innerHTML = task.description;
 
@@ -541,7 +655,7 @@
   function renderStats() {
     let totalScore = 0;
     let completed = 0;
-    state.tasks.forEach((task) => {
+    state.allTasks.forEach((task) => {
       const progress = state.progress[task.id];
       if (!progress) return;
       totalScore += progress.bestScore || 0;
@@ -770,7 +884,7 @@
       const match = trimmed.match(/^ALTER\s+VIEW\s+([^\s]+)\s+AS\s+([\s\S]+)$/i);
       if (match) {
         const viewName = mapIdentifier(match[1]);
-        const body = normalizeIdentifiers(convertTop(match[2]));
+        const body = adaptFunctions(normalizeIdentifiers(convertTop(match[2])));
         return [`DROP VIEW IF EXISTS ${viewName}`, `CREATE VIEW ${viewName} AS ${body}`];
       }
     }
@@ -779,7 +893,7 @@
       const match = trimmed.match(/^CREATE\s+VIEW\s+([^\s]+)\s+AS\s+([\s\S]+)$/i);
       if (match) {
         const viewName = mapIdentifier(match[1]);
-        const body = normalizeIdentifiers(convertTop(match[2]));
+        const body = adaptFunctions(normalizeIdentifiers(convertTop(match[2])));
         return [`CREATE VIEW ${viewName} AS ${body}`];
       }
     }
@@ -794,7 +908,8 @@
 
     const converted = convertTop(trimmed);
     const normalized = normalizeIdentifiers(converted);
-    return [normalized];
+    const adapted = adaptFunctions(normalized);
+    return [adapted];
   }
 
   function mapIdentifier(identifier) {
@@ -849,6 +964,10 @@
     }
 
     return result;
+  }
+
+  function adaptFunctions(statement) {
+    return statement.replace(/STRING_AGG\s*\(/gi, 'GROUP_CONCAT(');
   }
 
   function setStatus(message, statusClass) {

@@ -96,6 +96,39 @@ h3 {
   font-weight: 600;
 }
 
+.day-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.day-switcher.hidden {
+  display: none;
+}
+
+.day-switcher__button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.3rem 0.9rem;
+  background: rgba(15, 23, 42, 0.4);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.day-switcher__button--active {
+  border-color: var(--accent-strong);
+  background: rgba(14, 165, 233, 0.15);
+}
+
+.day-description {
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
 .task-list {
   list-style: none;
   padding: 0;
@@ -152,6 +185,15 @@ h3 {
 .task-list__score {
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.task-list__empty {
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 0.9rem;
 }
 
 .stats {
