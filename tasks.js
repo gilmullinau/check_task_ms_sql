@@ -432,6 +432,245 @@ ORDER BY SUM(SubTotal) DESC;`,
   },
 ];
 
+const DAY_THREE_TASKS = [
+  {
+    id: 'day3-task1',
+    dayId: 'day3',
+    title: 'Товары и их подкатегории',
+    description: `
+      <p>Выведите список всех товаров с указанием названия подкатегории.</p>
+      <p>Если у товара нет подкатегории, подставьте значение <code>Without Subcategory</code>.</p>
+    `,
+    starterSql: `SELECT p.Name,
+       COALESCE(subcat.Name, 'Without Subcategory') AS SubcategoryName
+FROM Production.Product AS p
+LEFT JOIN Production.ProductSubcategory AS subcat
+       ON subcat.ProductSubcategoryID = p.ProductSubcategoryID
+ORDER BY p.ProductID;`,
+    solutionSql: `SELECT p.Name,
+       COALESCE(subcat.Name, 'Without Subcategory') AS SubcategoryName
+FROM Production.Product AS p
+LEFT JOIN Production.ProductSubcategory AS subcat
+       ON subcat.ProductSubcategoryID = p.ProductSubcategoryID
+ORDER BY p.ProductID;`,
+    referenceSql: `SELECT p.Name,
+       COALESCE(subcat.Name, 'Without Subcategory') AS SubcategoryName
+FROM Production.Product AS p
+LEFT JOIN Production.ProductSubcategory AS subcat
+       ON subcat.ProductSubcategoryID = p.ProductSubcategoryID
+ORDER BY p.ProductID;`,
+    comparison: {
+      unordered: false,
+    },
+  },
+  {
+    id: 'day3-task2',
+    dayId: 'day3',
+    title: 'Список заказов с ФИО/названием клиента',
+    description: `
+      <p>Отсортируйте заказы по <code>SubTotal</code> от наибольшего к наименьшему.</p>
+      <p>В колонке «Клиент» покажите фамилию индивидуального клиента или название организации.</p>
+    `,
+    starterSql: `WITH Customers AS (
+  SELECT c.CustomerID,
+         c.LastName AS Name
+  FROM Sales.vIndividualCustomer AS c
+  UNION ALL
+  SELECT s.CustomerID,
+         s.Name
+  FROM Sales.vStoreWithAddresses AS s
+)
+SELECT Customers.Name AS Клиент,
+       soh.OrderDate,
+       soh.SubTotal
+FROM Sales.SalesOrderHeader AS soh
+LEFT JOIN Customers ON Customers.CustomerID = soh.CustomerID
+ORDER BY soh.SubTotal DESC, soh.SalesOrderID DESC;`,
+    solutionSql: `WITH Customers AS (
+  SELECT c.CustomerID,
+         c.LastName AS Name
+  FROM Sales.vIndividualCustomer AS c
+  UNION ALL
+  SELECT s.CustomerID,
+         s.Name
+  FROM Sales.vStoreWithAddresses AS s
+)
+SELECT Customers.Name AS Клиент,
+       soh.OrderDate,
+       soh.SubTotal
+FROM Sales.SalesOrderHeader AS soh
+LEFT JOIN Customers ON Customers.CustomerID = soh.CustomerID
+ORDER BY soh.SubTotal DESC, soh.SalesOrderID DESC;`,
+    referenceSql: `WITH Customers AS (
+  SELECT c.CustomerID,
+         c.LastName AS Name
+  FROM Sales.vIndividualCustomer AS c
+  UNION ALL
+  SELECT s.CustomerID,
+         s.Name
+  FROM Sales.vStoreWithAddresses AS s
+)
+SELECT Customers.Name AS Клиент,
+       soh.OrderDate,
+       soh.SubTotal
+FROM Sales.SalesOrderHeader AS soh
+LEFT JOIN Customers ON Customers.CustomerID = soh.CustomerID
+ORDER BY soh.SubTotal DESC, soh.SalesOrderID DESC;`,
+    comparison: {
+      unordered: false,
+    },
+  },
+  {
+    id: 'day3-task3',
+    dayId: 'day3',
+    title: 'Компоненты в спецификациях (BOM)',
+    description: `
+      <p>Сформируйте список идентификаторов продуктов, которые используются в спецификациях <code>BillOfMaterials</code> как компоненты.</p>
+      <p>Можно использовать любой подход: <code>DISTINCT</code>, <code>INTERSECT</code>, <code>IN</code>, <code>EXISTS</code>.</p>
+    `,
+    starterSql: `SELECT DISTINCT bom.ComponentID AS ProductID
+FROM Production.BillOfMaterials AS bom
+ORDER BY ProductID;`,
+    solutionSql: `SELECT DISTINCT bom.ComponentID AS ProductID
+FROM Production.BillOfMaterials AS bom
+ORDER BY ProductID;`,
+    referenceSql: `SELECT DISTINCT bom.ComponentID AS ProductID
+FROM Production.BillOfMaterials AS bom
+ORDER BY ProductID;`,
+    comparison: {
+      unordered: false,
+    },
+  },
+  {
+    id: 'day3-task4',
+    dayId: 'day3',
+    title: 'Продукты вне спецификаций',
+    description: `
+      <p>Выведите продукты, которые не используются как компоненты в спецификациях <code>BillOfMaterials</code>.</p>
+      <p>Попробуйте разные варианты (например, <code>NOT IN</code>, <code>EXCEPT</code>, <code>NOT EXISTS</code>), но результат должен содержать список уникальных <code>ProductID</code>.</p>
+    `,
+    starterSql: `SELECT p.ProductID
+FROM Production.Product AS p
+WHERE p.ProductID NOT IN (
+  SELECT bom.ComponentID
+  FROM Production.BillOfMaterials AS bom
+  WHERE bom.ComponentID IS NOT NULL
+)
+ORDER BY p.ProductID;`,
+    solutionSql: `SELECT p.ProductID
+FROM Production.Product AS p
+WHERE p.ProductID NOT IN (
+  SELECT bom.ComponentID
+  FROM Production.BillOfMaterials AS bom
+  WHERE bom.ComponentID IS NOT NULL
+)
+ORDER BY p.ProductID;`,
+    referenceSql: `SELECT p.ProductID
+FROM Production.Product AS p
+WHERE p.ProductID NOT IN (
+  SELECT bom.ComponentID
+  FROM Production.BillOfMaterials AS bom
+  WHERE bom.ComponentID IS NOT NULL
+)
+ORDER BY p.ProductID;`,
+    comparison: {
+      unordered: false,
+    },
+  },
+  {
+    id: 'day3-task5',
+    dayId: 'day3',
+    title: 'Строки заказа и сумма по заказу',
+    description: `
+      <p>Для каждого заказа покажите дату продажи, товар, стоимость строки и общую стоимость заказа.</p>
+      <p>Используйте таблицы <code>SalesOrderHeader</code>, <code>SalesOrderDetail</code> и <code>Production.Product</code>.</p>
+    `,
+    starterSql: `SELECT h.SalesOrderID,
+       h.OrderDate,
+       det.ProductID,
+       p.Name,
+       det.LineTotal,
+       SUM(det.LineTotal) OVER(PARTITION BY h.SalesOrderID) AS OrderTotalAmount
+FROM Sales.SalesOrderHeader AS h
+JOIN Sales.SalesOrderDetail AS det ON det.SalesOrderID = h.SalesOrderID
+LEFT JOIN Production.Product AS p ON p.ProductID = det.ProductID
+ORDER BY h.SalesOrderID, det.SalesOrderDetailID;`,
+    solutionSql: `SELECT h.SalesOrderID,
+       h.OrderDate,
+       det.ProductID,
+       p.Name,
+       det.LineTotal,
+       SUM(det.LineTotal) OVER(PARTITION BY h.SalesOrderID) AS OrderTotalAmount
+FROM Sales.SalesOrderHeader AS h
+JOIN Sales.SalesOrderDetail AS det ON det.SalesOrderID = h.SalesOrderID
+LEFT JOIN Production.Product AS p ON p.ProductID = det.ProductID
+ORDER BY h.SalesOrderID, det.SalesOrderDetailID;`,
+    referenceSql: `SELECT h.SalesOrderID,
+       h.OrderDate,
+       det.ProductID,
+       p.Name,
+       det.LineTotal,
+       SUM(det.LineTotal) OVER(PARTITION BY h.SalesOrderID) AS OrderTotalAmount
+FROM Sales.SalesOrderHeader AS h
+JOIN Sales.SalesOrderDetail AS det ON det.SalesOrderID = h.SalesOrderID
+LEFT JOIN Production.Product AS p ON p.ProductID = det.ProductID
+ORDER BY h.SalesOrderID, det.SalesOrderDetailID;`,
+    comparison: {
+      unordered: false,
+      numericTolerance: 0.01,
+    },
+  },
+  {
+    id: 'day3-task6',
+    dayId: 'day3',
+    title: 'Нарастающий итог по строкам заказа',
+    description: `
+      <p>Добавьте к предыдущему запросу колонку с нарастающим итогом по строкам внутри каждого заказа.</p>
+      <p>Используйте оконную функцию с <code>OVER (PARTITION BY ... ORDER BY ...)</code>.</p>
+    `,
+    starterSql: `SELECT h.SalesOrderID,
+       det.SalesOrderDetailID,
+       h.OrderDate,
+       det.ProductID,
+       p.Name,
+       det.LineTotal,
+       SUM(det.LineTotal) OVER(PARTITION BY h.SalesOrderID ORDER BY det.SalesOrderDetailID) AS RunningTotal,
+       SUM(det.LineTotal) OVER(PARTITION BY h.SalesOrderID) AS OrderTotalAmount
+FROM Sales.SalesOrderHeader AS h
+JOIN Sales.SalesOrderDetail AS det ON det.SalesOrderID = h.SalesOrderID
+LEFT JOIN Production.Product AS p ON p.ProductID = det.ProductID
+ORDER BY h.SalesOrderID, det.SalesOrderDetailID;`,
+    solutionSql: `SELECT h.SalesOrderID,
+       det.SalesOrderDetailID,
+       h.OrderDate,
+       det.ProductID,
+       p.Name,
+       det.LineTotal,
+       SUM(det.LineTotal) OVER(PARTITION BY h.SalesOrderID ORDER BY det.SalesOrderDetailID) AS RunningTotal,
+       SUM(det.LineTotal) OVER(PARTITION BY h.SalesOrderID) AS OrderTotalAmount
+FROM Sales.SalesOrderHeader AS h
+JOIN Sales.SalesOrderDetail AS det ON det.SalesOrderID = h.SalesOrderID
+LEFT JOIN Production.Product AS p ON p.ProductID = det.ProductID
+ORDER BY h.SalesOrderID, det.SalesOrderDetailID;`,
+    referenceSql: `SELECT h.SalesOrderID,
+       det.SalesOrderDetailID,
+       h.OrderDate,
+       det.ProductID,
+       p.Name,
+       det.LineTotal,
+       SUM(det.LineTotal) OVER(PARTITION BY h.SalesOrderID ORDER BY det.SalesOrderDetailID) AS RunningTotal,
+       SUM(det.LineTotal) OVER(PARTITION BY h.SalesOrderID) AS OrderTotalAmount
+FROM Sales.SalesOrderHeader AS h
+JOIN Sales.SalesOrderDetail AS det ON det.SalesOrderID = h.SalesOrderID
+LEFT JOIN Production.Product AS p ON p.ProductID = det.ProductID
+ORDER BY h.SalesOrderID, det.SalesOrderDetailID;`,
+    comparison: {
+      unordered: false,
+      numericTolerance: 0.01,
+    },
+  },
+];
+
 window.TASK_DAYS = [
   {
     id: 'day1',
@@ -447,6 +686,13 @@ window.TASK_DAYS = [
     description: 'Практика по схемам Sales и Production с проверкой сложных запросов.',
     tasks: DAY_TWO_TASKS,
   },
+  {
+    id: 'day3',
+    label: 'День 3',
+    title: 'День 3 · Бизнес-сценарии Adventure Works',
+    description: 'Работаем с заказами и спецификациями: витрины заказов, BOM и оконные функции.',
+    tasks: DAY_THREE_TASKS,
+  },
 ];
 
-window.TASKS = [...DAY_ONE_TASKS, ...DAY_TWO_TASKS];
+window.TASKS = [...DAY_ONE_TASKS, ...DAY_TWO_TASKS, ...DAY_THREE_TASKS];
