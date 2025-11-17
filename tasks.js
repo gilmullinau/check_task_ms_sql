@@ -1026,28 +1026,24 @@ window.TASK_DAYS = [
     id: 'day1',
     label: 'День 1',
     title: 'День 1 · Самостоятельная работа',
-    description: 'Разминка по базе Person.Person: фильтрация, агрегаты и работа с текстом.',
     tasks: DAY_ONE_TASKS,
   },
   {
     id: 'day2',
     label: 'День 2',
     title: 'День 2 · Практикум MS SQL',
-    description: 'Практика по схемам Sales и Production с проверкой сложных запросов.',
     tasks: DAY_TWO_TASKS,
   },
   {
     id: 'day3',
     label: 'День 3',
     title: 'День 3 · Бизнес-сценарии Adventure Works',
-    description: 'Работаем с заказами и спецификациями: витрины заказов, BOM (Bill of Materials — спецификации состава изделий) и оконные функции.',
     tasks: DAY_THREE_TASKS,
   },
   {
     id: 'day4',
     label: 'День 4',
     title: 'День 4 · Продвинутые сценарии Adventure Works',
-    description: 'Процедуры, функции и аналитика продаж: лучшие клиенты, статусы закупок и доли менеджеров.',
     tasks: DAY_FOUR_TASKS,
   },
 ];

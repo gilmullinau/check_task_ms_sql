@@ -28,7 +28,6 @@
         <div class="card">
           <h2>Задания</h2>
           <div id="day-switcher" class="day-switcher"></div>
-          <p id="day-description" class="day-description hidden"></p>
           <ul id="task-list" class="task-list"></ul>
         </div>
         <div class="card card--muted">
@@ -54,8 +53,8 @@
         <div class="card card--accent">
           <h3>Отправка результатов</h3>
           <p class="card__text">
-            Укажите ваши данные и выгружайте результат выбранного дня. Будет скачан
-            JSON-файл, который можно приложить к отчёту или загрузить в репозиторий.
+            Укажите ваши данные и параметры репозитория. Итоговый JSON автоматически
+            сохранится в папке <code>data</code> указанного проекта на GitHub.
           </p>
           <form class="profile-form" autocomplete="off">
             <label>
@@ -70,11 +69,29 @@
               <span>Почта</span>
               <input id="profile-email" type="email" name="email" autocomplete="email" placeholder="name@example.com" />
             </label>
+            <label>
+              <span>GitHub репозиторий (owner/name)</span>
+              <input id="repo-target" type="text" name="repoTarget" placeholder="username/project" autocomplete="off" />
+            </label>
+            <label>
+              <span>Ветка</span>
+              <input id="repo-branch" type="text" name="repoBranch" placeholder="main" autocomplete="off" />
+            </label>
+            <label>
+              <span>Персональный токен (repo scope)</span>
+              <input id="repo-token" type="password" name="repoToken" placeholder="ghp_..." autocomplete="off" />
+            </label>
+            <p class="profile-form__note">
+              Токен хранится только в вашем <code>localStorage</code> и используется для API-запроса
+              <code>PUT /repos/&lt;owner&gt;/&lt;repo&gt;/contents/data</code>.
+            </p>
           </form>
           <button id="submit-day" class="btn btn--primary btn--block" type="button">
             Отправить результаты дня
           </button>
-          <p class="submission-hint">Собираются баллы и последний SQL по каждому заданию выбранного дня.</p>
+          <p class="submission-hint">
+            Собираются баллы и последний SQL по каждому заданию выбранного дня. Файл сохраняется в GitHub.
+          </p>
           <div id="submission-status" class="submission-status"></div>
         </div>
       </aside>
@@ -132,8 +149,8 @@
 
     <footer class="page-footer">
       <p>
-        База данных на основе AdventureWorks (SQLite) загружается локально. Прогресс и контактные данные сохраняются в
-        <code>localStorage</code> вашего браузера, а результаты дня можно выгрузить в виде JSON-файла.
+        База данных на основе AdventureWorks (SQLite) загружается локально. Прогресс, профиль и настройки репозитория
+        сохраняются в <code>localStorage</code>, а отправка дней выполняется через GitHub API в папку <code>data</code>.
       </p>
     </footer>
 

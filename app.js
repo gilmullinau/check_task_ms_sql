@@ -24,6 +24,8 @@
   const STORAGE_KEY = 'ms-sql-practice-progress';
   const PROFILE_KEY = 'ms-sql-practice-profile';
   const SUBMISSIONS_KEY = 'ms-sql-practice-submissions';
+  const REPO_CONFIG_KEY = 'ms-sql-practice-repo-config';
+  const DEFAULT_REPO_CONFIG = { repoTarget: '', branch: 'main', token: '' };
 
   const state = {
     SQL: null,
@@ -36,8 +38,10 @@
     currentTaskId: null,
     progress: {},
     profile: { firstName: '', lastName: '', email: '' },
+    repoConfig: { ...DEFAULT_REPO_CONFIG },
     submissions: {},
     expectedCache: {},
+    isSubmitting: false,
   };
 
   const elements = {};
@@ -57,7 +61,6 @@
   function cacheElements() {
     elements.taskList = document.getElementById('task-list');
     elements.daySwitcher = document.getElementById('day-switcher');
-    elements.dayDescription = document.getElementById('day-description');
     elements.statTotal = document.getElementById('stat-total');
     elements.statComplete = document.getElementById('stat-complete');
     elements.statScore = document.getElementById('stat-score');
@@ -80,6 +83,9 @@
     elements.profileFirstName = document.getElementById('profile-first-name');
     elements.profileLastName = document.getElementById('profile-last-name');
     elements.profileEmail = document.getElementById('profile-email');
+    elements.repoTarget = document.getElementById('repo-target');
+    elements.repoBranch = document.getElementById('repo-branch');
+    elements.repoToken = document.getElementById('repo-token');
     elements.submitDayButton = document.getElementById('submit-day');
     elements.submissionStatus = document.getElementById('submission-status');
   }
@@ -102,12 +108,13 @@
     elements.statTotal.textContent = state.allTasks.length.toString();
     loadProgress();
     loadProfile();
+    loadRepoConfig();
     loadSubmissions();
     renderStats();
     renderDayTabs();
-    updateDayDescription();
     renderTaskList();
     applyProfileToForm();
+    applyRepoConfigToForm();
     updateSubmitButtonState();
     renderSubmissionStatus();
     attachEventListeners();
@@ -179,6 +186,24 @@
     if (elements.profileEmail) {
       elements.profileEmail.addEventListener('input', (event) => {
         handleProfileChange('email', event.target.value);
+      });
+    }
+
+    if (elements.repoTarget) {
+      elements.repoTarget.addEventListener('input', (event) => {
+        handleRepoConfigChange('repoTarget', event.target.value);
+      });
+    }
+
+    if (elements.repoBranch) {
+      elements.repoBranch.addEventListener('input', (event) => {
+        handleRepoConfigChange('branch', event.target.value);
+      });
+    }
+
+    if (elements.repoToken) {
+      elements.repoToken.addEventListener('input', (event) => {
+        handleRepoConfigChange('token', event.target.value);
       });
     }
 
@@ -282,10 +307,45 @@
     }
   }
 
+  function loadRepoConfig() {
+    try {
+      const raw = localStorage.getItem(REPO_CONFIG_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        state.repoConfig = { ...DEFAULT_REPO_CONFIG, ...parsed };
+        return;
+      }
+    } catch (error) {
+      console.warn('Не удалось загрузить настройки репозитория', error);
+    }
+    state.repoConfig = { ...DEFAULT_REPO_CONFIG };
+  }
+
+  function saveRepoConfig() {
+    try {
+      localStorage.setItem(REPO_CONFIG_KEY, JSON.stringify(state.repoConfig));
+    } catch (error) {
+      console.warn('Не удалось сохранить настройки репозитория', error);
+    }
+  }
+
+  function applyRepoConfigToForm() {
+    if (elements.repoTarget) {
+      elements.repoTarget.value = state.repoConfig.repoTarget || '';
+    }
+    if (elements.repoBranch) {
+      elements.repoBranch.value = state.repoConfig.branch || '';
+    }
+    if (elements.repoToken) {
+      elements.repoToken.value = state.repoConfig.token || '';
+    }
+  }
+
   function updateSubmitButtonState() {
     if (!elements.submitDayButton) return;
-    const { valid } = validateProfile();
-    elements.submitDayButton.disabled = !valid;
+    const profileValid = validateProfile().valid;
+    const repoValid = validateRepoConfig().valid;
+    elements.submitDayButton.disabled = !(profileValid && repoValid) || state.isSubmitting;
   }
 
   function handleProfileChange(field, value) {
@@ -294,6 +354,15 @@
     }
     state.profile[field] = value;
     saveProfile();
+    updateSubmitButtonState();
+  }
+
+  function handleRepoConfigChange(field, value) {
+    if (!state.repoConfig) {
+      state.repoConfig = { ...DEFAULT_REPO_CONFIG };
+    }
+    state.repoConfig[field] = value;
+    saveRepoConfig();
     updateSubmitButtonState();
   }
 
@@ -365,7 +434,6 @@
     state.tasks = day.tasks;
     state.currentTaskId = null;
     renderDayTabs();
-    updateDayDescription();
     renderTaskList();
     renderStats();
     renderSubmissionStatus();
@@ -395,18 +463,6 @@
         `;
       })
       .join('');
-  }
-
-  function updateDayDescription() {
-    if (!elements.dayDescription) return;
-    const day = state.days.find((item) => item.id === state.currentDayId);
-    if (day && day.description) {
-      elements.dayDescription.textContent = day.description;
-      elements.dayDescription.classList.remove('hidden');
-    } else {
-      elements.dayDescription.textContent = '';
-      elements.dayDescription.classList.add('hidden');
-    }
   }
 
   function clearTaskContext() {
@@ -791,9 +847,14 @@
     if (!elements.submissionStatus) return;
     const day = state.days.find((item) => item.id === state.currentDayId);
     const record = day ? state.submissions[day.id] : null;
+    const locationText = record
+      ? [record.repoTarget ? `${record.repoTarget}@${record.branch || 'main'}` : null, record.filePath]
+          .filter(Boolean)
+          .join(' → ')
+      : '';
     const history = day
       ? record
-        ? `Последний экспорт: ${formatDateTime(record.timestamp)} · ${record.completedTasks}/${record.totalTasks} заданий · ${record.totalScore} / ${record.maxScore} баллов.`
+        ? `Последняя отправка: ${formatDateTime(record.timestamp)} · ${record.completedTasks}/${record.totalTasks} заданий · ${record.totalScore} / ${record.maxScore} баллов${locationText ? ` · ${locationText}` : ''}.`
         : 'Для этого дня ещё не сохраняли результаты.'
       : 'Выберите день, чтобы отправить результат.';
     const allowedVariants = ['success', 'error'];
@@ -809,23 +870,49 @@
     `;
   }
 
-  function handleSubmitDay() {
+  async function handleSubmitDay() {
+    if (state.isSubmitting) {
+      return;
+    }
     const day = state.days.find((item) => item.id === state.currentDayId);
     if (!day) {
       renderSubmissionStatus('Сначала выберите день с заданиями.', 'error');
       return;
     }
-    const validation = validateProfile();
-    if (!validation.valid) {
-      renderSubmissionStatus(validation.message, 'error');
+    const profileValidation = validateProfile();
+    if (!profileValidation.valid) {
+      renderSubmissionStatus(profileValidation.message, 'error');
+      return;
+    }
+    const repoValidation = validateRepoConfig();
+    if (!repoValidation.valid) {
+      renderSubmissionStatus(repoValidation.message, 'error');
       return;
     }
 
     try {
-      const summary = buildDaySummary(day, validation.profile);
+      const summary = buildDaySummary(day, profileValidation.profile);
       const timestamp = Date.now();
       const fileName = `ms-sql-${day.id}-${timestamp}.json`;
-      downloadJson(summary, fileName);
+      const filePath = `data/${fileName}`;
+      const repoConfig = repoValidation.config;
+      const message = `Add ${day.label || day.title || day.id} results (${profileValidation.profile.lastName})`;
+      const payload = JSON.stringify(summary, null, 2);
+
+      state.isSubmitting = true;
+      updateSubmitButtonState();
+      renderSubmissionStatus('Отправляем файл в GitHub…');
+
+      await uploadSubmissionToGitHub({
+        owner: repoConfig.owner,
+        repo: repoConfig.repo,
+        branch: repoConfig.branch,
+        token: repoConfig.token,
+        path: filePath,
+        message,
+        content: encodeContentForGitHub(payload),
+      });
+
       state.submissions[day.id] = {
         timestamp,
         totalTasks: summary.day.totals.totalTasks,
@@ -833,12 +920,18 @@
         totalScore: summary.day.totals.totalScore,
         maxScore: summary.day.totals.maxScore,
         fileName,
+        filePath,
+        repoTarget: repoConfig.repoTarget,
+        branch: repoConfig.branch,
       };
       saveSubmissions();
-      renderSubmissionStatus('Файл с результатами сохранён на ваш компьютер.', 'success');
+      renderSubmissionStatus(`Файл сохранён: ${repoConfig.repoTarget} → ${filePath}`, 'success');
     } catch (error) {
       console.error(error);
-      renderSubmissionStatus('Не удалось сформировать файл. Попробуйте ещё раз.', 'error');
+      renderSubmissionStatus(`Не удалось сохранить в GitHub: ${error.message}`, 'error');
+    } finally {
+      state.isSubmitting = false;
+      updateSubmitButtonState();
     }
   }
 
@@ -862,6 +955,25 @@
     }
 
     return { valid: true, profile: { firstName, lastName, email } };
+  }
+
+  function validateRepoConfig() {
+    const config = state.repoConfig || DEFAULT_REPO_CONFIG;
+    const repoTarget = (config.repoTarget || '').trim();
+    if (!repoTarget) {
+      return { valid: false, message: 'Укажите репозиторий в формате owner/name.' };
+    }
+    const parts = repoTarget.split('/').filter(Boolean);
+    if (parts.length !== 2) {
+      return { valid: false, message: 'Репозиторий должен быть записан как owner/name.' };
+    }
+    const [owner, repo] = parts;
+    const branch = (config.branch || 'main').trim() || 'main';
+    const token = (config.token || '').trim();
+    if (!token) {
+      return { valid: false, message: 'Добавьте персональный токен GitHub с доступом repo.' };
+    }
+    return { valid: true, config: { owner, repo, branch, token, repoTarget: `${owner}/${repo}` } };
   }
 
   function buildDaySummary(day, sanitizedProfile) {
@@ -909,24 +1021,58 @@
     };
   }
 
-  function downloadJson(payload, fileName) {
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
   function formatDateTime(timestamp) {
     try {
       return new Date(timestamp).toLocaleString('ru-RU');
     } catch (error) {
       return new Date().toLocaleString('ru-RU');
     }
+  }
+
+  function encodeContentForGitHub(text) {
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(text);
+    let binary = '';
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+    return btoa(binary);
+  }
+
+  async function uploadSubmissionToGitHub({ owner, repo, branch, token, path, message, content }) {
+    const encodedPath = path
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`;
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        message,
+        content,
+        branch,
+      }),
+    });
+
+    if (!response.ok) {
+      let details = 'Не удалось выполнить запрос.';
+      try {
+        const errorBody = await response.json();
+        if (errorBody && errorBody.message) {
+          details = errorBody.message;
+        }
+      } catch (error) {
+        details = `${response.status} ${response.statusText}`;
+      }
+      throw new Error(details);
+    }
+
+    return response.json();
   }
 
   function toggleSolution(show) {
