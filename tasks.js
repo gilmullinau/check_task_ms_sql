@@ -708,31 +708,46 @@ const DAY_FOUR_TASKS = [
     dayId: 'day4',
     title: 'Лучший клиент-организация по региону',
     description: `
-      <p>Создайте процедуру <code>Sales.usp_BestCustomerByRegion</code>, которая по параметру <code>CountryRegionName</code>
-      возвращает лучшего клиента-организацию. Нужно вывести <code>CustomerID</code>, <code>Name</code> и сумму продаж.</p>
-      <p>Для проверки используйте представление <code>Sales.vStoreWithAddresses</code> и имитируйте вызов процедуры
-      выборкой с фильтром по стране (например, <code>'Australia'</code>).</p>
+      <p>Напишите процедуру <code>Sales.usp_BestCustomerByRegion</code>, которая по <code>CountryRegionName</code>
+      возвращает лучшего клиента-организацию. Выведите <code>CustomerID</code>, <code>Name</code> и сумму продаж.</p>
+      <p>В тренажере просто выполните выборку из тела процедуры с фильтром по стране (например, <code>'Australia'</code>).</p>
     `,
-    starterSql: `SELECT TOP 1
-       Customer.CustomerID,
-       Customer.Name,
-       SUM(SalesOrderHeader.SubTotal) AS Total
-FROM Sales.SalesOrderHeader AS SalesOrderHeader
-JOIN Sales.vStoreWithAddresses AS Customer
-     ON Customer.CustomerID = SalesOrderHeader.CustomerID
-WHERE Customer.CountryRegionName = 'Australia'
-GROUP BY Customer.CustomerID, Customer.Name, Customer.CountryRegionName
-ORDER BY Total DESC;`,
-    solutionSql: `SELECT TOP 1
-       Customer.CustomerID,
-       Customer.Name,
-       SUM(SalesOrderHeader.SubTotal) AS Total
-FROM Sales.SalesOrderHeader AS SalesOrderHeader
-JOIN Sales.vStoreWithAddresses AS Customer
-     ON Customer.CustomerID = SalesOrderHeader.CustomerID
-WHERE Customer.CountryRegionName = 'Australia'
-GROUP BY Customer.CustomerID, Customer.Name, Customer.CountryRegionName
-ORDER BY Total DESC;`,
+    starterSql: `CREATE PROCEDURE Sales.usp_BestCustomerByRegion (@CountryRegionName NVARCHAR(50)='Canada')
+AS BEGIN
+    SELECT TOP 1 
+           Customer.CustomerID,  
+           Customer.Name ,   
+           SUM(SubTotal) Total
+    FROM   Sales.SalesOrderHeader SalesOrderHeader
+           JOIN Sales.[vStoreWithAddresses] AS Customer
+                ON  Customer.CustomerID = SalesOrderHeader.CustomerID
+    WHERE  Customer.CountryRegionName = @CountryRegionName
+    GROUP BY
+           Customer.CustomerID,
+           Customer.CountryRegionName,
+           Customer.Name
+    ORDER BY Total DESC
+END;
+GO
+EXEC Sales.usp_BestCustomerByRegion 'Australia';`,
+    solutionSql: `CREATE PROCEDURE Sales.usp_BestCustomerByRegion (@CountryRegionName NVARCHAR(50)='Canada')
+AS BEGIN
+    SELECT TOP 1 
+           Customer.CustomerID,  
+           Customer.Name ,   
+           SUM(SubTotal) Total
+    FROM   Sales.SalesOrderHeader SalesOrderHeader
+           JOIN Sales.[vStoreWithAddresses] AS Customer
+                ON  Customer.CustomerID = SalesOrderHeader.CustomerID
+    WHERE  Customer.CountryRegionName = @CountryRegionName
+    GROUP BY
+           Customer.CustomerID,
+           Customer.CountryRegionName,
+           Customer.Name
+    ORDER BY Total DESC
+END;
+GO
+EXEC Sales.usp_BestCustomerByRegion 'Australia';`,
     referenceSql: `WITH StoreCustomers AS (
   SELECT cust.CustomerID,
          store.Name,
@@ -749,7 +764,9 @@ SELECT StoreCustomers.CustomerID,
 FROM Sales.SalesOrderHeader AS SalesOrderHeader
 JOIN StoreCustomers ON StoreCustomers.CustomerID = SalesOrderHeader.CustomerID
 WHERE StoreCustomers.CountryRegionName = 'Australia'
-GROUP BY StoreCustomers.CustomerID, StoreCustomers.Name, StoreCustomers.CountryRegionName
+GROUP BY StoreCustomers.CustomerID,
+         StoreCustomers.Name,
+         StoreCustomers.CountryRegionName
 ORDER BY Total DESC, StoreCustomers.CustomerID
 LIMIT 1;`,
     comparison: {
@@ -760,23 +777,39 @@ LIMIT 1;`,
   {
     id: 'day4-task2',
     dayId: 'day4',
-    title: 'Два последних заказа клиента',
+    title: 'Функция для двух последних заказов',
     description: `
-      <p>Создайте табличную функцию <code>Sales.MostRecOrders</code>, которая возвращает два последних заказа клиента по его
-      <code>CustomerID</code>. В тренажере достаточно выполнить сам запрос выборки с фильтром по нужному клиенту.</p>
+      <p>Создайте табличную функцию <code>Sales.MostRecOrders</code>, которая возвращает два последних заказа клиента.</p>
+      <p>Для самопроверки выполните выборку последних заказов по конкретному <code>CustomerID</code> (например, <code>1</code>).</p>
     `,
-    starterSql: `SELECT TOP(2)
-       SalesOrderID,
-       OrderDate
-FROM Sales.SalesOrderHeader
-WHERE CustomerID = 1
-ORDER BY OrderDate DESC, SalesOrderID DESC;`,
-    solutionSql: `SELECT TOP(2)
-       SalesOrderID,
-       OrderDate
-FROM Sales.SalesOrderHeader
-WHERE CustomerID = 1
-ORDER BY OrderDate DESC, SalesOrderID DESC;`,
+    starterSql: `CREATE FUNCTION Sales.MostRecOrders
+(
+    @intCustomerID AS INT
+)
+RETURNS TABLE
+AS
+    RETURN   
+    SELECT TOP(2)        SalesOrderID,
+           OrderDate
+    FROM   Sales.SalesOrderHeader
+    WHERE  CustomerID = @intCustomerID
+    ORDER BY
+           OrderDate     DESC;
+GO`,
+    solutionSql: `CREATE FUNCTION Sales.MostRecOrders
+(
+    @intCustomerID AS INT
+)
+RETURNS TABLE
+AS
+    RETURN   
+    SELECT TOP(2)        SalesOrderID,
+           OrderDate
+    FROM   Sales.SalesOrderHeader
+    WHERE  CustomerID = @intCustomerID
+    ORDER BY
+           OrderDate     DESC;
+GO`,
     referenceSql: `SELECT SalesOrderID,
        OrderDate
 FROM Sales.SalesOrderHeader
@@ -790,59 +823,25 @@ LIMIT 2;`,
   {
     id: 'day4-task3',
     dayId: 'day4',
-    title: 'Два последних заказа каждого клиента',
+    title: 'Два последних заказа для всех клиентов',
     description: `
-      <p>Выведите в одном запросе два последних заказа для каждого клиента-организации и каждого индивидуального клиента,
-      используя логику предыдущей функции (например, через <code>CROSS APPLY</code>).</p>
+      <p>Используя функцию из предыдущего задания, получите два последних заказа для клиентов-организаций и физических лиц.</p>
+      <p>В качестве подсказки используйте <code>CROSS APPLY</code> и объединение результатов через <code>UNION ALL</code>.</p>
     `,
-    starterSql: `SELECT Customer.Name AS CustomerName,
-       mro.SalesOrderID,
-       mro.OrderDate
-FROM Sales.vStoreWithAddresses AS Customer
-CROSS APPLY (
-    SELECT TOP(2) SalesOrderID,
-           OrderDate
-    FROM Sales.SalesOrderHeader
-    WHERE CustomerID = Customer.CustomerID
-    ORDER BY OrderDate DESC, SalesOrderID DESC
-) AS mro
+    starterSql: `SELECT Customer.Name,mro.SalesOrderID, mro.OrderDate
+FROM sales.vStoreWithAddresses  AS Customer
+       CROSS APPLY Sales.MostRecOrders(Customer.CustomerID) AS mro
 UNION ALL
-SELECT Customer.LastName AS CustomerName,
-       mro.SalesOrderID,
-       mro.OrderDate
-FROM Sales.vIndividualCustomer AS Customer
-CROSS APPLY (
-    SELECT TOP(2) SalesOrderID,
-           OrderDate
-    FROM Sales.SalesOrderHeader
-    WHERE CustomerID = Customer.CustomerID
-    ORDER BY OrderDate DESC, SalesOrderID DESC
-) AS mro
-ORDER BY CustomerName, OrderDate DESC, SalesOrderID DESC;`,
-    solutionSql: `SELECT Customer.Name AS CustomerName,
-       mro.SalesOrderID,
-       mro.OrderDate
-FROM Sales.vStoreWithAddresses AS Customer
-CROSS APPLY (
-    SELECT TOP(2) SalesOrderID,
-           OrderDate
-    FROM Sales.SalesOrderHeader
-    WHERE CustomerID = Customer.CustomerID
-    ORDER BY OrderDate DESC, SalesOrderID DESC
-) AS mro
+SELECT Customer.LastName,mro.SalesOrderID, mro.OrderDate
+FROM sales.vIndividualCustomer  AS Customer
+       CROSS APPLY Sales.MostRecOrders(Customer.CustomerID) AS mro;`,
+    solutionSql: `SELECT Customer.Name,mro.SalesOrderID, mro.OrderDate
+FROM sales.vStoreWithAddresses  AS Customer
+       CROSS APPLY Sales.MostRecOrders(Customer.CustomerID) AS mro
 UNION ALL
-SELECT Customer.LastName AS CustomerName,
-       mro.SalesOrderID,
-       mro.OrderDate
-FROM Sales.vIndividualCustomer AS Customer
-CROSS APPLY (
-    SELECT TOP(2) SalesOrderID,
-           OrderDate
-    FROM Sales.SalesOrderHeader
-    WHERE CustomerID = Customer.CustomerID
-    ORDER BY OrderDate DESC, SalesOrderID DESC
-) AS mro
-ORDER BY CustomerName, OrderDate DESC, SalesOrderID DESC;`,
+SELECT Customer.LastName,mro.SalesOrderID, mro.OrderDate
+FROM sales.vIndividualCustomer  AS Customer
+       CROSS APPLY Sales.MostRecOrders(Customer.CustomerID) AS mro;`,
     referenceSql: `WITH StoreCustomers AS (
   SELECT cust.CustomerID,
          store.Name AS DisplayName
@@ -887,35 +886,53 @@ ORDER BY CustomerName, OrderDate DESC, SalesOrderID DESC;`,
     dayId: 'day4',
     title: 'Расшифровка статусов закупок',
     description: `
-      <p>Создайте скалярную функцию <code>dbo.udf_GetPurchaseOrderStatus</code>, которая возвращает текст статуса документа покупки.</p>
-      <p>Для проверки выведите список заказов закупок с расшифровкой статуса через выражение <code>CASE</code>.</p>
+      <p>Создайте скалярную функцию <code>dbo.udf_GetPurchaseOrderStatus</code> для расшифровки статуса.</p>
+      <p>Затем выведите список закупок с текстовым описанием статуса.</p>
     `,
-    starterSql: `SELECT CASE ph.Status
-         WHEN 1 THEN 'Pending'
-         WHEN 2 THEN 'Approved'
-         WHEN 3 THEN 'Rejected'
-         WHEN 4 THEN 'Complete'
-         ELSE '** Invalid **'
-       END AS StatusDescription,
-       ph.PurchaseOrderID,
-       ph.OrderDate,
-       ph.Status,
-       ph.TotalDue
-FROM Purchasing.PurchaseOrderHeader AS ph
-ORDER BY ph.PurchaseOrderID;`,
-    solutionSql: `SELECT CASE ph.Status
-         WHEN 1 THEN 'Pending'
-         WHEN 2 THEN 'Approved'
-         WHEN 3 THEN 'Rejected'
-         WHEN 4 THEN 'Complete'
-         ELSE '** Invalid **'
-       END AS StatusDescription,
-       ph.PurchaseOrderID,
-       ph.OrderDate,
-       ph.Status,
-       ph.TotalDue
-FROM Purchasing.PurchaseOrderHeader AS ph
-ORDER BY ph.PurchaseOrderID;`,
+    starterSql: `CREATE FUNCTION dbo.udf_GetPurchaseOrderStatus(@Status tinyint)
+RETURNS [nvarchar](15) 
+AS 
+
+BEGIN
+    DECLARE @ret nvarchar(15);
+
+    SET @ret = 
+        CASE @Status
+            WHEN 1 THEN 'Pending'
+            WHEN 2 THEN 'Approved'
+            WHEN 3 THEN 'Rejected'
+            WHEN 4 THEN 'Complete'
+            ELSE '** Invalid **'
+        END;
+    
+    RETURN @ret
+END;
+GO
+
+SELECT dbo.[udf_GetPurchaseOrderStatus](ph.Status) , * 
+FROM Purchasing.PurchaseOrderHeader ph;`,
+    solutionSql: `CREATE FUNCTION dbo.udf_GetPurchaseOrderStatus(@Status tinyint)
+RETURNS [nvarchar](15) 
+AS 
+
+BEGIN
+    DECLARE @ret nvarchar(15);
+
+    SET @ret = 
+        CASE @Status
+            WHEN 1 THEN 'Pending'
+            WHEN 2 THEN 'Approved'
+            WHEN 3 THEN 'Rejected'
+            WHEN 4 THEN 'Complete'
+            ELSE '** Invalid **'
+        END;
+    
+    RETURN @ret
+END;
+GO
+
+SELECT dbo.[udf_GetPurchaseOrderStatus](ph.Status) , * 
+FROM Purchasing.PurchaseOrderHeader ph;`,
     referenceSql: `SELECT CASE ph.Status
          WHEN 1 THEN 'Pending'
          WHEN 2 THEN 'Approved'
@@ -938,39 +955,61 @@ ORDER BY ph.PurchaseOrderID;`,
     dayId: 'day4',
     title: 'Доля менеджеров в продажах по годам',
     description: `
-      <p>Нужно получить долю каждого менеджера (<code>SalesPersonID</code>) в продажах за каждый год. Процедура должна возвращать
-      таблицу с суммой продаж и процентом от общего объёма за год.</p>
+      <p>Создайте процедуру <code>Sales.usp_SalesByYear</code>, которая считает сумму продаж по менеджерам за каждый год</p>
+      <p>и выводит процент вклада менеджера в объём продаж в пределах года.</p>
     `,
-    starterSql: `SELECT soh.SalesPersonID,
-       p.FirstName || ' ' || IFNULL(p.MiddleName, '') || ' ' || p.LastName AS FullName,
-       YEAR(soh.OrderDate) AS [Year],
-       SUM(soh.SubTotal) AS TotalByPersonYear,
-       ROUND(SUM(soh.SubTotal) * 100.0 /
-             SUM(SUM(soh.SubTotal)) OVER (PARTITION BY YEAR(soh.OrderDate)), 2) AS [% in Year]
-FROM Sales.SalesPerson AS sp
-JOIN Sales.SalesOrderHeader AS soh ON sp.BusinessEntityID = soh.SalesPersonID
-JOIN Person.Person AS p ON p.BusinessEntityID = sp.BusinessEntityID
-GROUP BY soh.SalesPersonID,
-         p.FirstName,
-         p.MiddleName,
-         p.LastName,
-         YEAR(soh.OrderDate)
-ORDER BY [Year], [% in Year] DESC;`,
-    solutionSql: `SELECT soh.SalesPersonID,
-       p.FirstName || ' ' || IFNULL(p.MiddleName, '') || ' ' || p.LastName AS FullName,
-       YEAR(soh.OrderDate) AS [Year],
-       SUM(soh.SubTotal) AS TotalByPersonYear,
-       ROUND(SUM(soh.SubTotal) * 100.0 /
-             SUM(SUM(soh.SubTotal)) OVER (PARTITION BY YEAR(soh.OrderDate)), 2) AS [% in Year]
-FROM Sales.SalesPerson AS sp
-JOIN Sales.SalesOrderHeader AS soh ON sp.BusinessEntityID = soh.SalesPersonID
-JOIN Person.Person AS p ON p.BusinessEntityID = sp.BusinessEntityID
-GROUP BY soh.SalesPersonID,
-         p.FirstName,
-         p.MiddleName,
-         p.LastName,
-         YEAR(soh.OrderDate)
-ORDER BY [Year], [% in Year] DESC;`,
+    starterSql: `CREATE PROCEDURE Sales.usp_SalesByYear
+AS
+SELECT SalesPersonID,
+    FullName,
+    [Year],
+    TotalByPersonYear,
+    ROUND(TotalByPersonYear*100/SUM(TotalByPersonYear) over (partition by [Year]),2) as [% in Year]
+FROM 
+    (
+    SELECT 
+            soh.SalesPersonID
+            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName AS FullName  
+           ,YEAR( soh.OrderDate) AS [Year] 
+           ,SUM(soh.SubTotal) AS TotalByPersonYear 
+ 
+    FROM Sales.SalesPerson sp 
+    INNER JOIN Sales.SalesOrderHeader soh 
+            ON sp.BusinessEntityID = soh.SalesPersonID           
+    INNER JOIN Person.Person p
+            ON p.BusinessEntityID = sp.BusinessEntityID
+    GROUP BY soh.SalesPersonID
+            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName  
+            ,YEAR( soh.OrderDate)
+       ) AS  S
+ORDER BY  [Year], 
+    [% in Year] DESC;`,
+    solutionSql: `CREATE PROCEDURE Sales.usp_SalesByYear
+AS
+SELECT SalesPersonID,
+    FullName,
+    [Year],
+    TotalByPersonYear,
+    ROUND(TotalByPersonYear*100/SUM(TotalByPersonYear) over (partition by [Year]),2) as [% in Year]
+FROM 
+    (
+    SELECT 
+            soh.SalesPersonID
+            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName AS FullName  
+           ,YEAR( soh.OrderDate) AS [Year] 
+           ,SUM(soh.SubTotal) AS TotalByPersonYear 
+ 
+    FROM Sales.SalesPerson sp 
+    INNER JOIN Sales.SalesOrderHeader soh 
+            ON sp.BusinessEntityID = soh.SalesPersonID           
+    INNER JOIN Person.Person p
+            ON p.BusinessEntityID = sp.BusinessEntityID
+    GROUP BY soh.SalesPersonID
+            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName  
+            ,YEAR( soh.OrderDate)
+       ) AS  S
+ORDER BY  [Year], 
+    [% in Year] DESC;`,
     referenceSql: `WITH PersonYearSales AS (
   SELECT soh.SalesPersonID,
          CAST(strftime('%Y', soh.OrderDate) AS INTEGER) AS SalesYear,
@@ -981,26 +1020,25 @@ ORDER BY [Year], [% in Year] DESC;`,
 ),
 PersonNames AS (
   SELECT sp.BusinessEntityID AS SalesPersonID,
-         per.FirstName || ' ' || IFNULL(per.MiddleName, '') || ' ' || per.LastName AS FullName
+         per.FirstName || ' ' || IFNULL(per.MiddleName || ' ', '') || per.LastName AS FullName
   FROM Sales.SalesPerson AS sp
   JOIN Person.Person AS per ON per.BusinessEntityID = sp.BusinessEntityID
 )
 SELECT pys.SalesPersonID,
-       COALESCE(pn.FullName, 'Unknown') AS FullName,
+       pn.FullName,
        pys.SalesYear AS [Year],
-       ROUND(pys.TotalByPersonYear, 2) AS TotalByPersonYear,
+       pys.TotalByPersonYear,
        ROUND(pys.TotalByPersonYear * 100.0 /
              SUM(pys.TotalByPersonYear) OVER (PARTITION BY pys.SalesYear), 2) AS [% in Year]
 FROM PersonYearSales AS pys
 LEFT JOIN PersonNames AS pn ON pn.SalesPersonID = pys.SalesPersonID
-ORDER BY pys.SalesYear, [% in Year] DESC, pys.SalesPersonID;`,
+ORDER BY [Year], [% in Year] DESC, pys.SalesPersonID;`,
     comparison: {
       unordered: false,
       numericTolerance: 0.01,
     },
   },
 ];
-
 window.TASK_DAYS = [
   {
     id: 'day1',
