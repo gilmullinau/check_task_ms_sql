@@ -905,7 +905,8 @@
 
     const converted = convertTop(trimmed);
     const normalized = normalizeIdentifiers(converted);
-    const adapted = adaptFunctions(normalized);
+    const applyAdapted = adaptApplyOperators(normalized);
+    const adapted = adaptFunctions(applyAdapted);
     return [adapted];
   }
 
@@ -921,6 +922,7 @@
     result = result.replace(/^Sales\./i, 'Sales_');
     result = result.replace(/^Production\./i, 'Production_');
     result = result.replace(/^Person\./i, 'Person_');
+    result = result.replace(/^Purchasing\./i, 'Purchasing_');
     return result;
   }
 
@@ -928,7 +930,8 @@
     return sql
       .replace(/Sales\.([A-Za-z_]+)/gi, 'Sales_$1')
       .replace(/Production\.([A-Za-z_]+)/gi, 'Production_$1')
-      .replace(/Person\.([A-Za-z_]+)/gi, 'Person_$1');
+      .replace(/Person\.([A-Za-z_]+)/gi, 'Person_$1')
+      .replace(/Purchasing\.([A-Za-z_]+)/gi, 'Purchasing_$1');
   }
 
   function convertTop(statement) {
@@ -966,7 +969,14 @@
   function adaptFunctions(statement) {
     return statement
       .replace(/STRING_AGG\s*\(/gi, 'GROUP_CONCAT(')
-      .replace(/ISNULL\s*\(/gi, 'IFNULL(');
+      .replace(/ISNULL\s*\(/gi, 'IFNULL(')
+      .replace(/YEAR\s*\(([^)]+)\)/gi, "CAST(strftime('%Y', $1) AS INTEGER)");
+  }
+
+  function adaptApplyOperators(sql) {
+    return sql
+      .replace(/CROSS\s+APPLY/gi, 'CROSS JOIN LATERAL')
+      .replace(/OUTER\s+APPLY/gi, 'LEFT JOIN LATERAL');
   }
 
   function setStatus(message, statusClass) {
