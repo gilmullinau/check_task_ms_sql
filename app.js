@@ -493,9 +493,20 @@
           actualRows.push([check.view, value]);
         });
 
-        if (values.length !== expectedValues.length || !values.every((value, idx) => value === expectedValues[idx])) {
+        if (!values.length) {
           dataMatch = false;
-          messages.push(`Данные колонки <code>${escapeHtml(check.column)}</code> в представлении <code>${escapeHtml(check.view)}</code> не совпадают с ожидаемыми.`);
+          messages.push(`Колонка <code>${escapeHtml(check.column)}</code> в представлении <code>${escapeHtml(check.view)}</code> не содержит значений.`);
+        }
+
+        if (expectedValues.length) {
+          const normalizedActual = new Set(values.map((value) => (value === null || value === undefined ? 'NULL' : String(value))));
+          const missing = expectedValues
+            .map((value) => (value === null || value === undefined ? 'NULL' : String(value)))
+            .filter((key) => !normalizedActual.has(key));
+          if (missing.length) {
+            dataMatch = false;
+            messages.push(`В результатах <code>${escapeHtml(check.view)}</code> отсутствуют ожидаемые значения: ${missing.map(escapeHtml).join(', ')}.`);
+          }
         }
       } catch (error) {
         structureMatch = false;
@@ -953,7 +964,9 @@
   }
 
   function adaptFunctions(statement) {
-    return statement.replace(/STRING_AGG\s*\(/gi, 'GROUP_CONCAT(');
+    return statement
+      .replace(/STRING_AGG\s*\(/gi, 'GROUP_CONCAT(')
+      .replace(/ISNULL\s*\(/gi, 'IFNULL(');
   }
 
   function setStatus(message, statusClass) {

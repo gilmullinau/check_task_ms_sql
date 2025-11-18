@@ -117,17 +117,18 @@ ORDER BY TitleCount DESC, Title ASC;`,
     title: 'Топ-10 фамилий',
     description: `
       <p>Найдите десять самых популярных фамилий и выведите их вместе с количеством людей.</p>
+      <p>При одинаковой частоте отсортируйте фамилии в алфавитном порядке.</p>
     `,
     starterSql: `SELECT TOP 10 LastName,
        COUNT(*) AS LastNameCount
 FROM Person.Person
 GROUP BY LastName
-ORDER BY COUNT(*) DESC;`,
+ORDER BY COUNT(*) DESC, LastName ASC;`,
     solutionSql: `SELECT TOP 10 LastName,
        COUNT(*) AS LastNameCount
 FROM Person.Person
 GROUP BY LastName
-ORDER BY COUNT(*) DESC;`,
+ORDER BY COUNT(*) DESC, LastName ASC;`,
     referenceSql: `SELECT LastName,
        COUNT(*) AS LastNameCount
 FROM Person.Person
@@ -237,7 +238,7 @@ WHERE cust.StoreID IS NOT NULL;`,
         {
           view: 'Sales.vStoreWithAddresses',
           column: 'CustomerID',
-          expectedValues: [4],
+          expectedValues: [11, 12, 13],
         },
       ],
     },
@@ -335,9 +336,9 @@ WHERE Product.ListPrice > 1000;`,
     title: 'Продажи одежды в Лондоне',
     description: `
       <p>Найдите общее количество (<code>OrderQty</code>) товаров категории <strong>Clothing</strong>, отправленных в город <strong>London</strong>.</p>
-      <p>Результатом должна быть одна строка с суммой.</p>
+      <p>Результатом должна быть одна строка с суммой в колонке <code>TotalOrderQty</code>.</p>
     `,
-    starterSql: `SELECT SUM(sod.OrderQty)
+    starterSql: `SELECT SUM(sod.OrderQty) AS TotalOrderQty
 FROM Production.ProductCategory AS pc
 JOIN Production.ProductSubcategory AS ps ON ps.ProductCategoryID = pc.ProductCategoryID
 JOIN Production.Product AS p ON p.ProductSubcategoryID = ps.ProductSubcategoryID
@@ -345,7 +346,7 @@ JOIN Sales.SalesOrderDetail AS sod ON p.ProductID = sod.ProductID
 JOIN Sales.SalesOrderHeader AS soh ON sod.SalesOrderID = soh.SalesOrderID
 JOIN Person.Address AS a ON soh.ShipToAddressID = a.AddressID
 WHERE a.City = 'London' AND pc.Name = 'Clothing';`,
-    solutionSql: `SELECT SUM(SalesOrderDetail.OrderQty)
+    solutionSql: `SELECT SUM(SalesOrderDetail.OrderQty) AS TotalOrderQty
 FROM Production.ProductCategory AS pc
 JOIN Production.ProductSubcategory AS ps ON ps.ProductCategoryID = pc.ProductCategoryID
 JOIN Production.Product AS p ON p.ProductSubcategoryID = ps.ProductSubcategoryID
@@ -353,7 +354,7 @@ JOIN Sales.SalesOrderDetail AS SalesOrderDetail ON p.ProductID = SalesOrderDetai
 JOIN Sales.SalesOrderHeader AS soh ON SalesOrderDetail.SalesOrderID = soh.SalesOrderID
 JOIN Person.Address AS a ON soh.ShipToAddressID = a.AddressID
 WHERE a.City = 'London' AND pc.Name = 'Clothing';`,
-    referenceSql: `SELECT SUM(sod.OrderQty)
+    referenceSql: `SELECT SUM(sod.OrderQty) AS TotalOrderQty
 FROM Production.ProductCategory AS pc
 JOIN Production.ProductSubcategory AS ps ON ps.ProductCategoryID = pc.ProductCategoryID
 JOIN Production.Product AS p ON p.ProductSubcategoryID = ps.ProductSubcategoryID
@@ -439,22 +440,22 @@ const DAY_THREE_TASKS = [
     title: 'Товары и их подкатегории',
     description: `
       <p>Выведите список всех товаров с указанием названия подкатегории.</p>
-      <p>Если у товара нет подкатегории, подставьте значение <code>Without Subcategory</code>.</p>
+      <p>Если у товара нет подкатегории, подставьте значение <code>Without Subcategory</code> с помощью функции <code>ISNULL</code>.</p>
     `,
     starterSql: `SELECT p.Name,
-       COALESCE(subcat.Name, 'Without Subcategory') AS SubcategoryName
+       ISNULL(subcat.Name, 'Without Subcategory') AS SubcategoryName
 FROM Production.Product AS p
 LEFT JOIN Production.ProductSubcategory AS subcat
        ON subcat.ProductSubcategoryID = p.ProductSubcategoryID
 ORDER BY p.ProductID;`,
     solutionSql: `SELECT p.Name,
-       COALESCE(subcat.Name, 'Without Subcategory') AS SubcategoryName
+       ISNULL(subcat.Name, 'Without Subcategory') AS SubcategoryName
 FROM Production.Product AS p
 LEFT JOIN Production.ProductSubcategory AS subcat
        ON subcat.ProductSubcategoryID = p.ProductSubcategoryID
 ORDER BY p.ProductID;`,
     referenceSql: `SELECT p.Name,
-       COALESCE(subcat.Name, 'Without Subcategory') AS SubcategoryName
+       ISNULL(subcat.Name, 'Without Subcategory') AS SubcategoryName
 FROM Production.Product AS p
 LEFT JOIN Production.ProductSubcategory AS subcat
        ON subcat.ProductSubcategoryID = p.ProductSubcategoryID
@@ -707,8 +708,9 @@ const DAY_FOUR_TASKS = [
     dayId: 'day4',
     title: 'Лучший клиент-организация по региону',
     description: `
-      <p>Напишите запрос, который по параметру <code>@CountryRegionName</code> определяет клиента-организацию с максимальной суммой продаж.</p>
-      <p>Используйте заказы (<code>Sales.SalesOrderHeader</code>) и магазины (<code>Sales.Store</code>), чтобы рассчитать итог.</p>
+      <p>Напишите процедуру, которая по <code>CountryRegionName</code> возвращает лучшего клиента-организацию в указанном регионе.</p>
+      <p>Нужно вывести <code>CustomerID</code>, <code>Name</code> и сумму продаж (<code>SalesOrderHeader.SubTotal</code>) клиента с максимальным значением.</p>
+      <p>В песочнице используйте запрос с параметром региона, чтобы сымитировать вызов процедуры.</p>
     `,
     starterSql: `WITH TargetRegion AS (
   SELECT 'Germany' AS CountryRegionName
@@ -762,8 +764,8 @@ LIMIT 1;`,
     dayId: 'day4',
     title: 'Два последних заказа клиента',
     description: `
-      <p>Имитация табличной функции: верните два последних заказа выбранного клиента по <code>CustomerID</code>.</p>
-      <p>Сортируйте по дате и идентификатору заказа в обратном порядке.</p>
+      <p>Напишите табличную функцию, возвращающую два последних заказа (идентификатор и дату) для указанного клиента.</p>
+      <p>Для проверки в тренажере выполните эквивалентный запрос с параметром <code>CustomerID</code>.</p>
     `,
     starterSql: `WITH TargetCustomer AS (
   SELECT 1 AS CustomerID
@@ -801,8 +803,8 @@ LIMIT 2;`,
     dayId: 'day4',
     title: 'Два последних заказа каждого клиента',
     description: `
-      <p>Используйте оконные функции (аналог <code>CROSS APPLY</code> с табличной функцией), чтобы вывести два последних заказа для всех клиентов.</p>
-      <p>Объедините индивидуальных клиентов и организации в один список.</p>
+      <p>Используя предыдущую функцию, выведите два последних заказа для каждого клиента-организации и индивидуального клиента.</p>
+      <p>В запросе ниже логика функции реализована через оконные выражения для обоих типов клиентов.</p>
     `,
     starterSql: `WITH NamedCustomers AS (
   SELECT cust.CustomerID,
@@ -897,8 +899,8 @@ ORDER BY DisplayName, OrderDate DESC, SalesOrderID DESC;`,
     dayId: 'day4',
     title: 'Расшифровка статусов закупок',
     description: `
-      <p>Создайте эквивалент скалярной функции: верните список покупок с текстовым описанием статуса.</p>
-      <p>Для значений <code>1-4</code> используйте фиксированные подписи, для остальных выводите <code>** Invalid **</code>.</p>
+      <p>Напишите скалярную функцию, которая возвращает расшифровку статуса документа покупки.</p>
+      <p>В тренировочном запросе ниже та же логика реализована через выражение <code>CASE</code>, чтобы вывести статус для каждой строки.</p>
     `,
     starterSql: `SELECT ph.PurchaseOrderID,
        ph.OrderDate,
@@ -945,8 +947,8 @@ ORDER BY ph.PurchaseOrderID;`,
     dayId: 'day4',
     title: 'Доля менеджеров в продажах по годам',
     description: `
-      <p>Посчитайте суммарную выручку по каждому менеджеру (<code>SalesPersonID</code>) в разрезе лет.</p>
-      <p>Добавьте колонку с процентом продаж менеджера в рамках года, используя оконную функцию.</p>
+      <p>Нужно получить долю каждого менеджера (<code>SalesPersonID</code>) в продажах за каждый год.</p>
+      <p>Процедура должна возвращать таблицу с суммой продаж и процентом от общего объёма по каждому году; в песочнице достаточно выполнить эквивалентный запрос.</p>
     `,
     starterSql: `WITH PersonYearSales AS (
   SELECT soh.SalesPersonID,
