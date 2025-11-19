@@ -873,14 +873,14 @@ NamedOrders AS (
     SELECT * FROM IndividualCustomers
   ) AS nc ON nc.CustomerID = soh.CustomerID
 )
-SELECT CustomerName,
+SELECT CustomerName AS Name,
        SalesOrderID,
        OrderDate
 FROM NamedOrders
 WHERE rn <= 2
-ORDER BY CustomerName, OrderDate DESC, SalesOrderID DESC;`,
+ORDER BY Name, OrderDate DESC, SalesOrderID DESC;`,
     comparison: {
-      unordered: false,
+      unordered: true,
     },
   },
   {
@@ -941,15 +941,13 @@ FROM Purchasing.PurchaseOrderHeader ph;`,
          WHEN 3 THEN 'Rejected'
          WHEN 4 THEN 'Complete'
          ELSE '** Invalid **'
-       END AS StatusDescription,
-       ph.PurchaseOrderID,
-       ph.OrderDate,
-       ph.Status,
-       ph.TotalDue
+       END AS "dbo.udf_GetPurchaseOrderStatus",
+       ph.*
 FROM Purchasing.PurchaseOrderHeader AS ph
 ORDER BY ph.PurchaseOrderID;`,
     comparison: {
-      unordered: false,
+      unordered: true,
+      ignoreColumnNames: true,
     },
   },
   {

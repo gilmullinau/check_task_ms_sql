@@ -773,7 +773,7 @@ WHERE cust.StoreID IS NOT NULL;`,
 
   function compareResultSets(userResult, expectedResult, options = {}) {
     const messages = [];
-    const structure = compareStructure(userResult, expectedResult, messages);
+    const structure = compareStructure(userResult, expectedResult, messages, options);
     if (!structure) {
       return { structure: false, values: false, messages };
     }
@@ -809,7 +809,7 @@ WHERE cust.StoreID IS NOT NULL;`,
     return { structure: true, values: true, messages };
   }
 
-  function compareStructure(userResult, expectedResult, messages) {
+  function compareStructure(userResult, expectedResult, messages, options = {}) {
     if (!userResult || !expectedResult) {
       messages.push('Не удалось получить результаты для сравнения.');
       return false;
@@ -820,12 +820,17 @@ WHERE cust.StoreID IS NOT NULL;`,
       return false;
     }
 
-    for (let i = 0; i < expectedResult.columns.length; i += 1) {
-      const expectedName = String(expectedResult.columns[i]).toLowerCase();
-      const actualName = String(userResult.columns[i]).toLowerCase();
-      if (expectedName !== actualName) {
-        messages.push(`Название колонки №${i + 1} отличается: ожидается <code>${escapeHtml(expectedResult.columns[i])}</code>, получено <code>${escapeHtml(userResult.columns[i])}</code>.`);
-        return false;
+    const ignoreNames = Boolean(options.ignoreColumnNames);
+    if (!ignoreNames) {
+      for (let i = 0; i < expectedResult.columns.length; i += 1) {
+        const expectedName = String(expectedResult.columns[i]).toLowerCase();
+        const actualName = String(userResult.columns[i]).toLowerCase();
+        if (expectedName !== actualName) {
+          messages.push(
+            `Название колонки №${i + 1} отличается: ожидается <code>${escapeHtml(expectedResult.columns[i])}</code>, получено <code>${escapeHtml(userResult.columns[i])}</code>.`,
+          );
+          return false;
+        }
       }
     }
     return true;
