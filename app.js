@@ -1238,7 +1238,7 @@ ORDER BY Total DESC, StoreCustomers.CustomerID
 LIMIT 1`;
   }
 
-  function buildSalesByYearQuery() {
+function buildSalesByYearQuery() {
     return `WITH PersonYearSales AS (
   SELECT soh.SalesPersonID,
          CAST(strftime('%Y', soh.OrderDate) AS INTEGER) AS SalesYear,
@@ -1261,7 +1261,8 @@ SELECT pys.SalesPersonID,
              SUM(pys.TotalByPersonYear) OVER (PARTITION BY pys.SalesYear), 2) AS [% in Year]
 FROM PersonYearSales AS pys
 LEFT JOIN PersonNames AS pn ON pn.SalesPersonID = pys.SalesPersonID
-ORDER BY [Year], [% in Year] DESC, pys.SalesPersonID`;
+ORDER BY [Year], [% in Year] DESC, pys.SalesPersonID
+LIMIT 50`;
   }
 
   function buildMostRecOrdersPreview() {
