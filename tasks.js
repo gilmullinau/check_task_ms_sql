@@ -205,6 +205,7 @@ const DAY_TWO_TASKS = [
         <li>Для <code>vStoreWithAddresses</code> сопоставьте записи магазина с клиентами-организациями.</li>
         <li>Можно использовать <code>ALTER VIEW</code> или связку <code>DROP VIEW</code> + <code>CREATE VIEW</code>.</li>
       </ul>
+      <p>Чтобы проверка засчитала задание, выполните реальные команды <code>ALTER/CREATE VIEW</code> для обоих представлений.</p>
     `,
     starterSql: `-- Добавьте CustomerID в оба представления
 `,
@@ -229,6 +230,7 @@ JOIN Person.Address AS a ON a.AddressID = sa.AddressID
 WHERE cust.StoreID IS NOT NULL;`,
     verification: {
       type: 'viewColumn',
+      requiredViews: ['Sales.vIndividualCustomer', 'Sales.vStoreWithAddresses'],
       checks: [
         {
           view: 'Sales.vIndividualCustomer',

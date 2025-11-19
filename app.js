@@ -154,6 +154,7 @@
     if (typeof window !== 'undefined' && window.SAMPLE_DB_BASE64) {
       state.baseBytes = decodeBase64ToBytes(window.SAMPLE_DB_BASE64);
       state.db = new state.SQL.Database(state.baseBytes.slice());
+      applyCompatibilityPatches(state.db);
       return;
     }
 
@@ -164,6 +165,7 @@
     const buffer = await response.arrayBuffer();
     state.baseBytes = new Uint8Array(buffer);
     state.db = new state.SQL.Database(state.baseBytes.slice());
+    applyCompatibilityPatches(state.db);
   }
 
   function resetDatabase() {
@@ -175,6 +177,43 @@
       }
     }
     state.db = new state.SQL.Database(state.baseBytes.slice());
+    applyCompatibilityPatches(state.db);
+  }
+
+  function applyCompatibilityPatches(targetDb) {
+    const dbInstance = targetDb || state.db;
+    if (!dbInstance) return;
+    const statements = [
+      `DROP VIEW IF EXISTS Sales_vIndividualCustomer;`,
+      `CREATE VIEW Sales_vIndividualCustomer AS
+SELECT c.CustomerID,
+       p.BusinessEntityID AS PersonID,
+       p.Title,
+       p.FirstName,
+       p.MiddleName,
+       p.LastName
+FROM Sales_Customer AS c
+JOIN Person_Person AS p ON p.BusinessEntityID = c.PersonID
+WHERE c.PersonID IS NOT NULL;`,
+      `DROP VIEW IF EXISTS Sales_vStoreWithAddresses;`,
+      `CREATE VIEW Sales_vStoreWithAddresses AS
+SELECT cust.CustomerID,
+       store.Name,
+       addr.AddressLine1,
+       addr.City,
+       addr.CountryRegionName
+FROM Sales_Customer AS cust
+JOIN Sales_Store AS store ON store.BusinessEntityID = cust.StoreID
+JOIN Sales_StoreAddress AS sa ON sa.StoreID = store.BusinessEntityID
+JOIN Person_Address AS addr ON addr.AddressID = sa.AddressID
+WHERE cust.StoreID IS NOT NULL;`,
+    ];
+
+    try {
+      statements.forEach((sql) => dbInstance.run(sql));
+    } catch (error) {
+      console.warn('Не удалось применить совместимые представления', error);
+    }
   }
 
   function loadProgress() {
@@ -456,12 +495,33 @@
     return evaluation;
   }
 
-  function evaluateViewColumns(config) {
+  function evaluateViewColumns(config, executedSql = '') {
     const messages = [];
     let structureMatch = true;
     let dataMatch = true;
     const expectedRows = [];
     const actualRows = [];
+
+    const requiredViews = Array.isArray(config.requiredViews) ? config.requiredViews : [];
+    if (requiredViews.length) {
+      const normalizedSql = executedSql.toLowerCase();
+      const missing = [];
+      requiredViews.forEach((view) => {
+        const mapped = mapIdentifier(view).toLowerCase();
+        const regex = new RegExp(`create\\s+view\\s+${mapped}\\b`, 'i');
+        if (!regex.test(normalizedSql)) {
+          missing.push(view);
+        }
+      });
+      if (missing.length) {
+        structureMatch = false;
+        dataMatch = false;
+        messages.push(
+          `Не обнаружены команды <code>ALTER/CREATE VIEW</code> для: ${missing.map(escapeHtml).join(', ')}. ` +
+            'Выполните скрипт изменения представлений перед проверкой.'
+        );
+      }
+    }
 
     config.checks.forEach((check) => {
       const viewName = mapIdentifier(check.view);
@@ -702,6 +762,7 @@
       return state.expectedCache[task.id];
     }
     const referenceDb = new state.SQL.Database(state.baseBytes.slice());
+    applyCompatibilityPatches(referenceDb);
     const sql = preprocessSql(task.referenceSql);
     const exec = referenceDb.exec(sql);
     referenceDb.close();
