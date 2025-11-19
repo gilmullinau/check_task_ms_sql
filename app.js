@@ -834,7 +834,20 @@
       transformed.push(finalizeSql(buildSalesByYearQuery()));
     }
 
-    return transformed.join('; ');
+    const normalizedStatements = [];
+    transformed.forEach((statement) => {
+      const trimmed = statement.trim();
+      if (/^EXEC/i.test(trimmed)) {
+        const expanded = expandExecStatement(trimmed, context);
+        if (expanded) {
+          normalizedStatements.push(expanded);
+          return;
+        }
+      }
+      normalizedStatements.push(trimmed);
+    });
+
+    return normalizedStatements.join('; ');
   }
 
   function splitStatements(sql) {
