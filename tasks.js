@@ -1010,29 +1010,13 @@ FROM
        ) AS  S
 ORDER BY  [Year],
     [% in Year] DESC;`,
-    referenceSql: `WITH PersonYearSales AS (
-  SELECT soh.SalesPersonID,
-         CAST(strftime('%Y', soh.OrderDate) AS INTEGER) AS SalesYear,
-         SUM(soh.SubTotal) AS TotalByPersonYear
-  FROM Sales.SalesOrderHeader AS soh
-  WHERE soh.SalesPersonID IS NOT NULL
-  GROUP BY soh.SalesPersonID, CAST(strftime('%Y', soh.OrderDate) AS INTEGER)
-),
-PersonNames AS (
-  SELECT sp.BusinessEntityID AS SalesPersonID,
-         per.FirstName || ' ' || IFNULL(per.MiddleName || ' ', '') || per.LastName AS FullName
-  FROM Sales.SalesPerson AS sp
-  JOIN Person.Person AS per ON per.BusinessEntityID = sp.BusinessEntityID
-)
-SELECT pys.SalesPersonID,
-       pn.FullName,
-       pys.SalesYear AS [Year],
-       pys.TotalByPersonYear,
-       ROUND(pys.TotalByPersonYear * 100.0 /
-             SUM(pys.TotalByPersonYear) OVER (PARTITION BY pys.SalesYear), 2) AS [% in Year]
-FROM PersonYearSales AS pys
-LEFT JOIN PersonNames AS pn ON pn.SalesPersonID = pys.SalesPersonID
-ORDER BY [Year], [% in Year] DESC, pys.SalesPersonID
+    referenceSql: `SELECT SalesPersonID,
+       FullName,
+       SalesYear AS [Year],
+       TotalByPersonYear,
+       PercentInYear AS [% in Year]
+FROM Analytics_SalesPersonYear
+ORDER BY [Year], [% in Year] DESC, SalesPersonID
 LIMIT 50;`,
     comparison: {
       unordered: false,

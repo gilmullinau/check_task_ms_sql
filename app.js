@@ -207,6 +207,38 @@ JOIN Sales_Store AS store ON store.BusinessEntityID = cust.StoreID
 JOIN Sales_StoreAddress AS sa ON sa.StoreID = store.BusinessEntityID
 JOIN Person_Address AS addr ON addr.AddressID = sa.AddressID
 WHERE cust.StoreID IS NOT NULL;`,
+      `DROP TABLE IF EXISTS Analytics_SalesPersonYear;`,
+      `CREATE TABLE Analytics_SalesPersonYear AS
+WITH PersonYearSales AS (
+  SELECT soh.SalesPersonID,
+         CAST(strftime('%Y', soh.OrderDate) AS INTEGER) AS SalesYear,
+         SUM(soh.SubTotal) AS TotalByPersonYear
+  FROM Sales_SalesOrderHeader AS soh
+  WHERE soh.SalesPersonID IS NOT NULL
+  GROUP BY soh.SalesPersonID, CAST(strftime('%Y', soh.OrderDate) AS INTEGER)
+),
+YearTotals AS (
+  SELECT SalesYear,
+         SUM(TotalByPersonYear) AS TotalByYear
+  FROM PersonYearSales
+  GROUP BY SalesYear
+),
+PersonNames AS (
+  SELECT sp.BusinessEntityID AS SalesPersonID,
+         per.FirstName || ' ' || IFNULL(per.MiddleName || ' ', '') || per.LastName AS FullName
+  FROM Sales_SalesPerson AS sp
+  JOIN Person_Person AS per ON per.BusinessEntityID = sp.BusinessEntityID
+)
+SELECT pys.SalesPersonID,
+       COALESCE(pn.FullName, 'Unknown') AS FullName,
+       pys.SalesYear,
+       pys.TotalByPersonYear,
+       ROUND(pys.TotalByPersonYear * 100.0 / yt.TotalByYear, 2) AS PercentInYear
+FROM PersonYearSales AS pys
+JOIN YearTotals AS yt ON yt.SalesYear = pys.SalesYear
+LEFT JOIN PersonNames AS pn ON pn.SalesPersonID = pys.SalesPersonID
+ORDER BY pys.SalesYear, PercentInYear DESC, pys.SalesPersonID;`,
+      `CREATE INDEX IF NOT EXISTS idx_analytics_salespersonyear_year ON Analytics_SalesPersonYear (SalesYear);`,
     ];
 
     try {
@@ -1238,30 +1270,14 @@ ORDER BY Total DESC, StoreCustomers.CustomerID
 LIMIT 1`;
   }
 
-function buildSalesByYearQuery() {
-    return `WITH PersonYearSales AS (
-  SELECT soh.SalesPersonID,
-         CAST(strftime('%Y', soh.OrderDate) AS INTEGER) AS SalesYear,
-         SUM(soh.SubTotal) AS TotalByPersonYear
-  FROM Sales.SalesOrderHeader AS soh
-  WHERE soh.SalesPersonID IS NOT NULL
-  GROUP BY soh.SalesPersonID, CAST(strftime('%Y', soh.OrderDate) AS INTEGER)
-),
-PersonNames AS (
-  SELECT sp.BusinessEntityID AS SalesPersonID,
-         per.FirstName || ' ' || IFNULL(per.MiddleName || ' ', '') || per.LastName AS FullName
-  FROM Sales.SalesPerson AS sp
-  JOIN Person.Person AS per ON per.BusinessEntityID = sp.BusinessEntityID
-)
-SELECT pys.SalesPersonID,
-       pn.FullName,
-       pys.SalesYear AS [Year],
-       pys.TotalByPersonYear,
-       ROUND(pys.TotalByPersonYear * 100.0 /
-             SUM(pys.TotalByPersonYear) OVER (PARTITION BY pys.SalesYear), 2) AS [% in Year]
-FROM PersonYearSales AS pys
-LEFT JOIN PersonNames AS pn ON pn.SalesPersonID = pys.SalesPersonID
-ORDER BY [Year], [% in Year] DESC, pys.SalesPersonID
+  function buildSalesByYearQuery() {
+    return `SELECT SalesPersonID,
+       FullName,
+       SalesYear AS [Year],
+       TotalByPersonYear,
+       PercentInYear AS [% in Year]
+FROM Analytics_SalesPersonYear
+ORDER BY [Year], [% in Year] DESC, SalesPersonID
 LIMIT 50`;
   }
 
