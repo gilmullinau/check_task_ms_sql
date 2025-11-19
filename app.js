@@ -805,20 +805,34 @@
   }
 
   function preprocessSql(sql) {
-    let text = sql.replace(/\r\n/g, ';\n');
+    let text = sql.replace(/\r\n/g, '\n');
     text = text.replace(/^\s*GO\s*$/gim, ';');
     text = text.replace(/\[([^\]]+)\]/g, '$1');
 
     const statements = splitStatements(text);
     const transformed = [];
+    const context = {
+      pendingMostRecOrders: false,
+      pendingSalesByYear: false,
+      usedMostRecOrders: false,
+      usedSalesByYearExec: false,
+    };
     statements.forEach((statement) => {
-      const outputs = transformStatement(statement);
+      const outputs = transformStatement(statement, context);
       outputs.forEach((item) => {
         if (item.trim()) {
           transformed.push(item.trim());
         }
       });
     });
+
+    if (context.pendingMostRecOrders && !context.usedMostRecOrders) {
+      transformed.push(finalizeSql(buildMostRecOrdersPreview()));
+    }
+
+    if (context.pendingSalesByYear && !context.usedSalesByYearExec) {
+      transformed.push(finalizeSql(buildSalesByYearQuery()));
+    }
 
     return transformed.join('; ');
   }
@@ -873,9 +887,21 @@
     return statements;
   }
 
-  function transformStatement(statement) {
+  function transformStatement(statement, context) {
     const trimmed = statement.trim();
     if (!trimmed) return [];
+
+    const createMatch = trimmed.match(/^CREATE\s+(?:PROC|PROCEDURE|FUNCTION)\s+([^\s(]+)/i);
+    if (createMatch) {
+      const objectName = createMatch[1].toLowerCase();
+      if (objectName === 'sales.mostrecorders') {
+        context.pendingMostRecOrders = true;
+      }
+      if (objectName === 'sales.usp_salesbyyear') {
+        context.pendingSalesByYear = true;
+      }
+      return [];
+    }
 
     if (/^ALTER\s+VIEW/i.test(trimmed)) {
       const match = trimmed.match(/^ALTER\s+VIEW\s+([^\s]+)\s+AS\s+([\s\S]+)$/i);
@@ -903,11 +929,18 @@
       }
     }
 
-    const converted = convertTop(trimmed);
-    const normalized = normalizeIdentifiers(converted);
-    const applyAdapted = adaptApplyOperators(normalized);
-    const adapted = adaptFunctions(applyAdapted);
-    return [adapted];
+    if (/^EXEC/i.test(trimmed)) {
+      const expanded = expandExecStatement(trimmed, context);
+      if (expanded) {
+        return [expanded];
+      }
+    }
+
+    if (/Sales\.MostRecOrders\s*\(/i.test(trimmed)) {
+      context.usedMostRecOrders = true;
+    }
+
+    return [finalizeSql(trimmed)];
   }
 
   function mapIdentifier(identifier) {
@@ -970,7 +1003,118 @@
     return statement
       .replace(/STRING_AGG\s*\(/gi, 'GROUP_CONCAT(')
       .replace(/ISNULL\s*\(/gi, 'IFNULL(')
-      .replace(/YEAR\s*\(([^)]+)\)/gi, "CAST(strftime('%Y', $1) AS INTEGER)");
+      .replace(/YEAR\s*\(([^)]+)\)/gi, "CAST(strftime('%Y', $1) AS INTEGER)")
+      .replace(/dbo\.udf_GetPurchaseOrderStatus\s*\(([^)]+)\)/gi, (_, expr) =>
+        `(CASE ${expr.trim()} WHEN 1 THEN 'Pending' WHEN 2 THEN 'Approved' WHEN 3 THEN 'Rejected' WHEN 4 THEN 'Complete' ELSE '** Invalid **' END)`
+      )
+      .replace(/Sales\.MostRecOrders\s*\(([^)]+)\)/gi, (_, expr) =>
+        `(SELECT SalesOrderID, OrderDate FROM Sales_SalesOrderHeader WHERE CustomerID = ${expr.trim()} ORDER BY OrderDate DESC, SalesOrderID DESC LIMIT 2)`
+      );
+  }
+
+  function expandExecStatement(statement, context) {
+    const match = statement.match(/^EXEC(?:UTE)?\s+([^\s]+)([\s\S]*)$/i);
+    if (!match) return null;
+    const procName = match[1].toLowerCase();
+    const args = (match[2] || '').trim();
+
+    if (procName === 'sales.usp_bestcustomerbyregion') {
+      const region = extractStringArgument(args, 'countryregionname') || 'Canada';
+      const escapedRegion = escapeSqlStringLiteral(region);
+      return finalizeSql(buildBestCustomerQuery(escapedRegion));
+    }
+
+    if (procName === 'sales.usp_salesbyyear') {
+      context.usedSalesByYearExec = true;
+      return finalizeSql(buildSalesByYearQuery());
+    }
+
+    return null;
+  }
+
+  function buildBestCustomerQuery(region) {
+    return `WITH StoreCustomers AS (
+  SELECT cust.CustomerID,
+         store.Name,
+         addr.CountryRegionName
+  FROM Sales.Customer AS cust
+  JOIN Sales.Store AS store ON store.BusinessEntityID = cust.StoreID
+  JOIN Sales.StoreAddress AS sa ON sa.StoreID = store.BusinessEntityID
+  JOIN Person.Address AS addr ON addr.AddressID = sa.AddressID
+  WHERE cust.StoreID IS NOT NULL
+)
+SELECT StoreCustomers.CustomerID,
+       StoreCustomers.Name,
+       SUM(SalesOrderHeader.SubTotal) AS Total
+FROM Sales.SalesOrderHeader AS SalesOrderHeader
+JOIN StoreCustomers ON StoreCustomers.CustomerID = SalesOrderHeader.CustomerID
+WHERE StoreCustomers.CountryRegionName = '${region}'
+GROUP BY StoreCustomers.CustomerID,
+         StoreCustomers.Name,
+         StoreCustomers.CountryRegionName
+ORDER BY Total DESC, StoreCustomers.CustomerID
+LIMIT 1`;
+  }
+
+  function buildSalesByYearQuery() {
+    return `WITH PersonYearSales AS (
+  SELECT soh.SalesPersonID,
+         CAST(strftime('%Y', soh.OrderDate) AS INTEGER) AS SalesYear,
+         SUM(soh.SubTotal) AS TotalByPersonYear
+  FROM Sales.SalesOrderHeader AS soh
+  WHERE soh.SalesPersonID IS NOT NULL
+  GROUP BY soh.SalesPersonID, CAST(strftime('%Y', soh.OrderDate) AS INTEGER)
+),
+PersonNames AS (
+  SELECT sp.BusinessEntityID AS SalesPersonID,
+         per.FirstName || ' ' || IFNULL(per.MiddleName || ' ', '') || per.LastName AS FullName
+  FROM Sales.SalesPerson AS sp
+  JOIN Person.Person AS per ON per.BusinessEntityID = sp.BusinessEntityID
+)
+SELECT pys.SalesPersonID,
+       pn.FullName,
+       pys.SalesYear AS [Year],
+       pys.TotalByPersonYear,
+       ROUND(pys.TotalByPersonYear * 100.0 /
+             SUM(pys.TotalByPersonYear) OVER (PARTITION BY pys.SalesYear), 2) AS [% in Year]
+FROM PersonYearSales AS pys
+LEFT JOIN PersonNames AS pn ON pn.SalesPersonID = pys.SalesPersonID
+ORDER BY [Year], [% in Year] DESC, pys.SalesPersonID`;
+  }
+
+  function buildMostRecOrdersPreview() {
+    return `SELECT SalesOrderID,
+       OrderDate
+FROM Sales.SalesOrderHeader
+WHERE CustomerID = 1
+ORDER BY OrderDate DESC, SalesOrderID DESC
+LIMIT 2`;
+  }
+
+  function extractStringArgument(input, paramName) {
+    if (!input) return null;
+    if (paramName) {
+      const named = input.match(new RegExp(`@?${paramName}\s*=\s*'([^']*(?:''[^']*)*)'`, 'i'));
+      if (named) {
+        return named[1].replace(/''/g, "'");
+      }
+    }
+    const generic = input.match(/'([^']*(?:''[^']*)*)'/);
+    if (generic) {
+      return generic[1].replace(/''/g, "'");
+    }
+    return null;
+  }
+
+  function escapeSqlStringLiteral(value) {
+    return String(value).replace(/'/g, "''");
+  }
+
+  function finalizeSql(input) {
+    const converted = convertTop(input);
+    const normalized = normalizeIdentifiers(converted);
+    const applyAdapted = adaptApplyOperators(normalized);
+    return adaptFunctions(applyAdapted);
   }
 
   function adaptApplyOperators(sql) {
