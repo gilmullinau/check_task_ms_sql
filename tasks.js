@@ -953,74 +953,92 @@ ORDER BY ph.PurchaseOrderID;`,
   {
     id: 'day4-task5',
     dayId: 'day4',
-    title: 'Доля менеджеров в продажах по годам (топ-50 строк)',
+    title: 'Доля менеджеров в продажах по годам (шаблон процедуры)',
     description: `
-      <p>Создайте процедуру <code>Sales.usp_SalesByYear</code>, которая считает сумму продаж по менеджерам за каждый год</p>
-      <p>и выводит процент вклада менеджера в объём продаж в пределах года. Для ускорения выборки верните только первые 50 строк итогового набора.</p>
+      <p>Напишите текст процедуры <code>Sales.usp_SalesByYear</code>, которая считает суммы продаж и проценты менеджеров по годам.</p>
+      <p>Никаких дополнительных запросов выполнять не нужно — шаблон сравнивается с эталоном из методички.</p>
     `,
     starterSql: `CREATE PROCEDURE Sales.usp_SalesByYear
 AS
-SELECT TOP 50 SalesPersonID,
+SELECT SalesPersonID,
     FullName,
     [Year],
     TotalByPersonYear,
     ROUND(TotalByPersonYear*100/SUM(TotalByPersonYear) over (partition by [Year]),2) as [% in Year]
-FROM
+FROM 
     (
-    SELECT
+    SELECT 
             soh.SalesPersonID
-            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName AS FullName
-           ,YEAR( soh.OrderDate) AS [Year]
-           ,SUM(soh.SubTotal) AS TotalByPersonYear
-
-    FROM Sales.SalesPerson sp
-    INNER JOIN Sales.SalesOrderHeader soh
-            ON sp.BusinessEntityID = soh.SalesPersonID
+            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName AS FullName  
+           ,YEAR( soh.OrderDate) AS [Year] 
+           ,SUM(soh.SubTotal) AS TotalByPersonYear 
+ 
+    FROM Sales.SalesPerson sp 
+    INNER JOIN Sales.SalesOrderHeader soh 
+            ON sp.BusinessEntityID = soh.SalesPersonID           
     INNER JOIN Person.Person p
             ON p.BusinessEntityID = sp.BusinessEntityID
     GROUP BY soh.SalesPersonID
-            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName
+            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName  
             ,YEAR( soh.OrderDate)
        ) AS  S
-ORDER BY  [Year],
-    [% in Year] DESC;`,
+ORDER BY  [Year], 
+    [% in Year] DESC`,
     solutionSql: `CREATE PROCEDURE Sales.usp_SalesByYear
 AS
-SELECT TOP 50 SalesPersonID,
+SELECT SalesPersonID,
     FullName,
     [Year],
     TotalByPersonYear,
     ROUND(TotalByPersonYear*100/SUM(TotalByPersonYear) over (partition by [Year]),2) as [% in Year]
-FROM
+FROM 
     (
-    SELECT
+    SELECT 
             soh.SalesPersonID
-            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName AS FullName
-           ,YEAR( soh.OrderDate) AS [Year]
-           ,SUM(soh.SubTotal) AS TotalByPersonYear
-
-    FROM Sales.SalesPerson sp
-    INNER JOIN Sales.SalesOrderHeader soh
-            ON sp.BusinessEntityID = soh.SalesPersonID
+            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName AS FullName  
+           ,YEAR( soh.OrderDate) AS [Year] 
+           ,SUM(soh.SubTotal) AS TotalByPersonYear 
+ 
+    FROM Sales.SalesPerson sp 
+    INNER JOIN Sales.SalesOrderHeader soh 
+            ON sp.BusinessEntityID = soh.SalesPersonID           
     INNER JOIN Person.Person p
             ON p.BusinessEntityID = sp.BusinessEntityID
     GROUP BY soh.SalesPersonID
-            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName
+            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName  
             ,YEAR( soh.OrderDate)
        ) AS  S
-ORDER BY  [Year],
-    [% in Year] DESC;`,
-    referenceSql: `SELECT SalesPersonID,
-       FullName,
-       SalesYear AS [Year],
-       TotalByPersonYear,
-       PercentInYear AS [% in Year]
-FROM Analytics_SalesPersonYear
-ORDER BY [Year], [% in Year] DESC, SalesPersonID
-LIMIT 50;`,
-    comparison: {
-      unordered: false,
-      numericTolerance: 0.01,
+ORDER BY  [Year], 
+    [% in Year] DESC`,
+    referenceSql: null,
+    verification: {
+      type: 'templateMatch',
+      template: `CREATE PROCEDURE Sales.usp_SalesByYear
+AS
+SELECT SalesPersonID,
+    FullName,
+    [Year],
+    TotalByPersonYear,
+    ROUND(TotalByPersonYear*100/SUM(TotalByPersonYear) over (partition by [Year]),2) as [% in Year]
+FROM 
+    (
+    SELECT 
+            soh.SalesPersonID
+            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName AS FullName  
+           ,YEAR( soh.OrderDate) AS [Year] 
+           ,SUM(soh.SubTotal) AS TotalByPersonYear 
+ 
+    FROM Sales.SalesPerson sp 
+    INNER JOIN Sales.SalesOrderHeader soh 
+            ON sp.BusinessEntityID = soh.SalesPersonID           
+    INNER JOIN Person.Person p
+            ON p.BusinessEntityID = sp.BusinessEntityID
+    GROUP BY soh.SalesPersonID
+            ,p.FirstName + ' ' + ISNULL(p.MiddleName, '') + ' ' + p.LastName  
+            ,YEAR( soh.OrderDate)
+       ) AS  S
+ORDER BY  [Year], 
+    [% in Year] DESC`,
     },
   },
 ];

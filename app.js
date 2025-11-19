@@ -452,7 +452,10 @@ ORDER BY pys.SalesYear, PercentInYear DESC, pys.SalesPersonID;`,
 
     setStatus('Выполнение запроса…', 'status-warning');
 
-    const execution = executeUserSql(sql);
+    const isTemplateVerification = task.verification && task.verification.type === 'templateMatch';
+    const execution = isTemplateVerification
+      ? { success: true, result: null, sql: '', rawSql: sql }
+      : executeUserSql(sql);
 
     let expectedResult = null;
     if (task.referenceSql) {
@@ -480,9 +483,9 @@ ORDER BY pys.SalesYear, PercentInYear DESC, pys.SalesPersonID;`,
     try {
       const execResult = state.db.exec(processedSql);
       const result = extractLastResult(execResult);
-      return { success: true, result, execResult, sql: processedSql };
+      return { success: true, result, execResult, sql: processedSql, rawSql };
     } catch (error) {
-      return { success: false, error, result: null };
+      return { success: false, error, result: null, rawSql };
     }
   }
 
@@ -494,6 +497,16 @@ ORDER BY pys.SalesYear, PercentInYear DESC, pys.SalesPersonID;`,
       expectedResult,
       userResult: execution.result,
     };
+
+    if (task.verification && task.verification.type === 'templateMatch') {
+      const templateResult = evaluateTemplateMatch(task.verification, execution.rawSql || '');
+      evaluation.structureMatch = templateResult.match;
+      evaluation.dataMatch = templateResult.match;
+      evaluation.messages.push(...templateResult.messages);
+      evaluation.expectedResult = templateResult.expectedResult;
+      evaluation.userResult = templateResult.userResult;
+      return evaluation;
+    }
 
     if (!execution.success) {
       evaluation.messages.push(`Ошибка выполнения: ${execution.error.message || execution.error}`);
@@ -626,6 +639,50 @@ ORDER BY pys.SalesYear, PercentInYear DESC, pys.SalesPersonID;`,
       messages,
       expectedResult,
       userResult,
+    };
+  }
+
+  function evaluateTemplateMatch(config, rawSql) {
+    const template = config.template || '';
+    const normalizedUser = normalizeTemplateSql(rawSql);
+    const normalizedTemplate = normalizeTemplateSql(template);
+    const match = normalizedUser && normalizedTemplate && normalizedUser === normalizedTemplate;
+
+    const messages = [];
+    if (match) {
+      messages.push('Текст процедуры совпадает с эталоном.');
+    } else {
+      messages.push('SQL должен соответствовать эталонному шаблону процедуры.');
+    }
+
+    return {
+      match,
+      messages,
+      expectedResult: buildTextTable('Эталонный шаблон', template),
+      userResult: buildTextTable('Ваш SQL', rawSql || '(пусто)'),
+    };
+  }
+
+  function normalizeTemplateSql(input) {
+    if (!input) return '';
+    let text = input.replace(/--.*$/gm, ' ');
+    text = text.replace(/\/\*[\s\S]*?\*\//g, ' ');
+    text = text.replace(/\bGO\b/gi, ' ');
+    text = text.replace(/\s+/g, ' ');
+    text = text.replace(/;\s*$/g, '');
+    return text.trim().toUpperCase();
+  }
+
+  function buildTextTable(title, text) {
+    const normalized = (text || '').replace(/\r\n/g, '\n');
+    const rows = normalized
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .filter((line) => line.length)
+      .map((line) => [line]);
+    return {
+      columns: [title || 'Текст'],
+      values: rows,
     };
   }
 
