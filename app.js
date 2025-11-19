@@ -809,14 +809,17 @@
     text = text.replace(/^\s*GO\s*$/gim, ';');
     text = text.replace(/\[([^\]]+)\]/g, '$1');
 
-    const statements = splitStatements(text);
-    const transformed = [];
     const context = {
       pendingMostRecOrders: false,
       pendingSalesByYear: false,
       usedMostRecOrders: false,
       usedSalesByYearExec: false,
     };
+
+    text = stripProgrammableBlocks(text, context);
+
+    const statements = splitStatements(text);
+    const transformed = [];
     statements.forEach((statement) => {
       const outputs = transformStatement(statement, context);
       outputs.forEach((item) => {
@@ -906,13 +909,7 @@
 
     const createMatch = trimmed.match(/^CREATE\s+(?:PROC|PROCEDURE|FUNCTION)\s+([^\s(]+)/i);
     if (createMatch) {
-      const objectName = createMatch[1].toLowerCase();
-      if (objectName === 'sales.mostrecorders') {
-        context.pendingMostRecOrders = true;
-      }
-      if (objectName === 'sales.usp_salesbyyear') {
-        context.pendingSalesByYear = true;
-      }
+      registerProgrammableObject(createMatch[1], context);
       return [];
     }
 
@@ -954,6 +951,115 @@
     }
 
     return [finalizeSql(trimmed)];
+  }
+
+  function stripProgrammableBlocks(input, context) {
+    if (!input) return '';
+    let output = '';
+    let cursor = 0;
+    const lower = input.toLowerCase();
+    const createRegex = /create\s+(?:proc|procedure|function)\b/gi;
+
+    let match = createRegex.exec(lower);
+    while (match) {
+      const start = match.index;
+      output += input.slice(cursor, start);
+      const headerMatch = input.slice(start).match(/^CREATE\s+(?:PROC|PROCEDURE|FUNCTION)\s+([^\s(]+)/i);
+      if (headerMatch) {
+        registerProgrammableObject(headerMatch[1], context);
+      }
+      const blockEnd = findProgrammableBlockEnd(input, lower, start + (headerMatch ? headerMatch[0].length : 0));
+      cursor = blockEnd;
+      createRegex.lastIndex = blockEnd;
+      match = createRegex.exec(lower);
+    }
+
+    output += input.slice(cursor);
+    return output;
+  }
+
+  function findProgrammableBlockEnd(text, lower, start) {
+    let index = start;
+    let depth = 0;
+    let caseDepth = 0;
+    let beginFound = false;
+    let inSingle = false;
+    let inDouble = false;
+
+    while (index < text.length) {
+      const char = text[index];
+      if (char === "'" && !inDouble) {
+        if (inSingle && text[index + 1] === "'") {
+          index += 2;
+          continue;
+        }
+        inSingle = !inSingle;
+        index += 1;
+        continue;
+      }
+      if (char === '"' && !inSingle) {
+        if (inDouble && text[index + 1] === '"') {
+          index += 2;
+          continue;
+        }
+        inDouble = !inDouble;
+        index += 1;
+        continue;
+      }
+
+      if (!inSingle && !inDouble) {
+        if (lower.startsWith('begin', index)) {
+          beginFound = true;
+          depth += 1;
+          index += 5;
+          continue;
+        }
+        if (lower.startsWith('case', index)) {
+          caseDepth += 1;
+          index += 4;
+          continue;
+        }
+        if (lower.startsWith('end', index)) {
+          if (caseDepth > 0) {
+            caseDepth -= 1;
+            index += 3;
+            continue;
+          }
+          if (beginFound && depth > 0) {
+            depth -= 1;
+            index += 3;
+            if (depth === 0) {
+              while (index < text.length && /[\s]/.test(text[index])) {
+                index += 1;
+              }
+              if (text[index] === ';') {
+                index += 1;
+              }
+              while (index < text.length && /[\s;]/.test(text[index])) {
+                index += 1;
+              }
+              return index;
+            }
+            continue;
+          }
+        }
+      }
+      index += 1;
+    }
+
+    const fallback = text.indexOf(';', start);
+    return fallback === -1 ? text.length : fallback + 1;
+  }
+
+  function registerProgrammableObject(name, context) {
+    if (!name) return;
+    const normalized = name.toLowerCase();
+    if (normalized === 'sales.mostrecorders') {
+      context.pendingMostRecOrders = true;
+    }
+    if (normalized === 'sales.usp_salesbyyear') {
+      context.pendingSalesByYear = true;
+    }
   }
 
   function mapIdentifier(identifier) {
@@ -1019,9 +1125,6 @@
       .replace(/YEAR\s*\(([^)]+)\)/gi, "CAST(strftime('%Y', $1) AS INTEGER)")
       .replace(/dbo\.udf_GetPurchaseOrderStatus\s*\(([^)]+)\)/gi, (_, expr) =>
         `(CASE ${expr.trim()} WHEN 1 THEN 'Pending' WHEN 2 THEN 'Approved' WHEN 3 THEN 'Rejected' WHEN 4 THEN 'Complete' ELSE '** Invalid **' END)`
-      )
-      .replace(/Sales\.MostRecOrders\s*\(([^)]+)\)/gi, (_, expr) =>
-        `(SELECT SalesOrderID, OrderDate FROM Sales_SalesOrderHeader WHERE CustomerID = ${expr.trim()} ORDER BY OrderDate DESC, SalesOrderID DESC LIMIT 2)`
       );
   }
 
@@ -1131,9 +1234,45 @@ LIMIT 2`;
   }
 
   function adaptApplyOperators(sql) {
-    return sql
-      .replace(/CROSS\s+APPLY/gi, 'CROSS JOIN LATERAL')
-      .replace(/OUTER\s+APPLY/gi, 'LEFT JOIN LATERAL');
+    if (!sql) return sql;
+    const source = buildMostRecOrdersSource();
+    let transformed = sql.replace(
+      /(CROSS|OUTER)\s+APPLY\s+Sales[._]MostRecOrders\s*\(([^)]+)\)(?:\s+(?:AS\s+)?([A-Za-z_][\w]*))?/gi,
+      (_, applyType, expr, alias) => {
+        const joinType = applyType.toUpperCase() === 'OUTER' ? 'LEFT JOIN' : 'JOIN';
+        const safeAlias = alias || 'MostRecOrders';
+        return `${joinType} ${source} AS ${safeAlias} ON ${safeAlias}.CustomerID = ${expr.trim()}`;
+      }
+    );
+
+    transformed = transformed.replace(
+      /FROM\s+Sales[._]MostRecOrders\s*\(([^)]+)\)\s*(?:AS\s+)?([A-Za-z_][\w]*)?/gi,
+      (_, expr, alias) =>
+        `FROM (SELECT SalesOrderID, OrderDate FROM ${source} WHERE CustomerID = ${expr.trim()}) AS ${
+          alias || 'MostRecOrders'
+        }`
+    );
+
+    return transformed;
+  }
+
+  function buildMostRecOrdersSource() {
+    return `(
+  SELECT SalesOrderID,
+         OrderDate,
+         CustomerID
+  FROM (
+    SELECT SalesOrderID,
+           OrderDate,
+           CustomerID,
+           ROW_NUMBER() OVER (
+             PARTITION BY CustomerID
+             ORDER BY OrderDate DESC, SalesOrderID DESC
+           ) AS rn
+    FROM Sales_SalesOrderHeader
+  )
+  WHERE rn <= 2
+)`;
   }
 
   function setStatus(message, statusClass) {
