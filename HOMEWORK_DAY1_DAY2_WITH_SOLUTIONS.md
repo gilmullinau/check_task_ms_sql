@@ -1,8 +1,21 @@
-# Домашние задания (День 1–2) с ответами
+# Домашние задания (День 1–2) с подробными условиями и ответами
+
+Документ полностью соответствует текущему набору задач в тренажёре: только **День 1** и **День 2**.
+
+---
 
 ## День 1
 
-### 1. Фильтрация Ken и Dav
+### Задание 1. Фильтрация людей по шаблонам имени и фамилии
+**Условие:**
+Выведите всех людей из таблицы `Person.Person`, у которых:
+- имя начинается с `Ken` и фамилия начинается с `K`,
+**или**
+- имя начинается с `Dav` и фамилия начинается с `D`.
+
+Используйте оператор `LIKE` и объедините условия через `OR`.
+
+**Ответ:**
 ```sql
 SELECT *
 FROM Person.Person
@@ -10,13 +23,27 @@ WHERE (FirstName LIKE 'Ken%' AND LastName LIKE 'K%')
   OR (FirstName LIKE 'Dav%' AND LastName LIKE 'D%');
 ```
 
-### 2. Различные значения Title
+### Задание 2. Поиск уникальных значений в колонке Title
+**Условие:**
+Найдите все различные (уникальные) значения колонки `Title` в таблице `Person.Person`.
+Порядок вывода значений не важен.
+
+**Ответ:**
 ```sql
 SELECT DISTINCT Title
 FROM Person.Person;
 ```
 
-### 3. Первые 100 записей по женским обращениям
+### Задание 3. Первые 100 записей с женскими обращениями
+**Условие:**
+Выведите первые 100 записей о людях с обращениями:
+- `Ms.`
+- `Ms`
+- `Mrs.`
+
+Чтобы выборка была детерминированной, отсортируйте результат по `BusinessEntityID`.
+
+**Ответ:**
 ```sql
 SELECT TOP 100 *
 FROM Person.Person
@@ -24,13 +51,22 @@ WHERE Title IN ('Ms.', 'Ms', 'Mrs.')
 ORDER BY BusinessEntityID;
 ```
 
-### 4. Сколько всего людей
+### Задание 4. Подсчёт общего числа людей
+**Условие:**
+Посчитайте, сколько всего записей содержится в таблице `Person.Person`.
+
+**Ответ:**
 ```sql
 SELECT COUNT(*) AS AllCount
 FROM Person.Person;
 ```
 
-### 5. Количество людей по Title
+### Задание 5. Количество людей по каждому значению Title
+**Условие:**
+Выведите количество людей для каждого значения `Title`.
+Отсортируйте результат по убыванию количества.
+
+**Ответ:**
 ```sql
 SELECT Title,
        COUNT(*) AS TitleCount
@@ -39,7 +75,16 @@ GROUP BY Title
 ORDER BY TitleCount DESC;
 ```
 
-### 6. Топ-10 фамилий
+### Задание 6. Топ-10 самых популярных фамилий
+**Условие:**
+Найдите 10 самых часто встречающихся фамилий в `Person.Person`.
+Выведите:
+- фамилию,
+- количество людей с этой фамилией.
+
+При одинаковом количестве сортируйте фамилии по алфавиту.
+
+**Ответ:**
 ```sql
 SELECT TOP 10 LastName,
        COUNT(*) AS LastNameCount
@@ -48,7 +93,17 @@ GROUP BY LastName
 ORDER BY COUNT(*) DESC, LastName ASC;
 ```
 
-### 7. Фамилии с редкими и частыми встречаемостями
+### Задание 7. Редкие и очень частые фамилии
+**Условие:**
+Выведите фамилии, у которых количество людей:
+- больше `150`,
+**или**
+- меньше `3`.
+
+Используйте фильтр через `HAVING COUNT(*) NOT BETWEEN 3 AND 150`.
+Отсортируйте результат по убыванию количества.
+
+**Ответ:**
 ```sql
 SELECT LastName,
        COUNT(*) AS LastNameCount
@@ -58,16 +113,30 @@ HAVING COUNT(*) NOT BETWEEN 3 AND 150
 ORDER BY COUNT(*) DESC;
 ```
 
-### 8. Список имён через запятую
+### Задание 8. Агрегация имён в одну строку
+**Условие:**
+Соберите имена всех людей, у которых фамилия начинается на `K`,
+в одну строку через запятую.
+Используйте функцию строковой агрегации (`STRING_AGG` или аналог).
+
+**Ответ:**
 ```sql
 SELECT STRING_AGG(FirstName, ',') AS FirstNames
 FROM Person.Person
 WHERE LastName LIKE 'K%';
 ```
 
+---
+
 ## День 2
 
-### 1. Клиенты без заказов (NOT EXISTS)
+### Задание 1. Клиенты без заказов (NOT EXISTS)
+**Условие:**
+Найдите клиентов из `Sales.Customer`, которые ещё не оформили ни одного заказа.
+Используйте подзапрос с `NOT EXISTS` к `Sales.SalesOrderHeader`.
+Выведите `CustomerID` и отсортируйте по возрастанию.
+
+**Ответ:**
 ```sql
 SELECT c.CustomerID
 FROM Sales.Customer AS c
@@ -79,7 +148,14 @@ WHERE NOT EXISTS (
 ORDER BY c.CustomerID;
 ```
 
-### 2. Проданные товары Road Bikes
+### Задание 2. Проданные товары из подкатегории Road Bikes
+**Условие:**
+Выведите названия всех товаров из подкатегории `Road Bikes`, которые были проданы хотя бы один раз.
+Используйте таблицы `Production.Product`, `Production.ProductSubcategory` и подзапрос по `Sales.SalesOrderDetail`.
+
+Результат сравнивается по списку названий, порядок строк не важен.
+
+**Ответ:**
 ```sql
 SELECT p.Name
 FROM Production.Product AS p
@@ -88,7 +164,15 @@ WHERE ps.Name = 'Road Bikes'
   AND p.ProductID IN (SELECT sod.ProductID FROM Sales.SalesOrderDetail AS sod);
 ```
 
-### 3. Покупатели Racing Socks
+### Задание 3. Покупатели модели Racing Socks
+**Условие:**
+Покажите название продукта и ФИО клиентов, которые оформляли заказ на модель `Racing Socks`.
+Результат должен содержать колонки:
+- `Name` (название продукта),
+- `FirstName`,
+- `LastName`.
+
+**Ответ:**
 ```sql
 SELECT p.Name, cust.FirstName, cust.LastName
 FROM Sales.SalesOrderDetail AS ord
@@ -100,7 +184,14 @@ JOIN Person.Person AS cust ON cust.BusinessEntityID = c.PersonID
 WHERE pm.Name = 'Racing Socks';
 ```
 
-### 4. Товары с ценой выше 1000
+### Задание 4. Количество проданных дорогих товаров
+**Условие:**
+Посчитайте количество **уникальных** товаров с `ListPrice > 1000`,
+которые были проданы за весь период.
+
+Ожидается одно числовое значение в колонке `Total`.
+
+**Ответ:**
 ```sql
 SELECT COUNT(DISTINCT Product.ProductID) AS Total
 FROM Sales.SalesOrderDetail AS SalesOrderDetail
@@ -108,7 +199,14 @@ JOIN Production.Product AS Product ON SalesOrderDetail.ProductID = Product.Produ
 WHERE Product.ListPrice > 1000;
 ```
 
-### 5. Продажи одежды в Лондоне
+### Задание 5. Продажи одежды в London
+**Условие:**
+Найдите общее количество (`OrderQty`) товаров категории `Clothing`,
+которые были отправлены в город `London`.
+
+Результат должен содержать одну строку с суммой в колонке `TotalOrderQty`.
+
+**Ответ:**
 ```sql
 SELECT SUM(SalesOrderDetail.OrderQty) AS TotalOrderQty
 FROM Production.ProductCategory AS pc
@@ -120,7 +218,15 @@ JOIN Person.Address AS a ON soh.ShipToAddressID = a.AddressID
 WHERE a.City = 'London' AND pc.Name = 'Clothing';
 ```
 
-### 6. Топ-10 товаров по выручке
+### Задание 6. Топ-10 товаров по выручке
+**Условие:**
+Определите 10 товаров с наибольшей выручкой,
+где выручка считается как `OrderQty * UnitPrice`.
+
+Выведите название товара и итоговую сумму продаж.
+Отсортируйте по убыванию выручки.
+
+**Ответ:**
 ```sql
 SELECT TOP 10 Product.Name,
        SUM(SalesOrderDetail.OrderQty * SalesOrderDetail.UnitPrice) AS Total_Sale_Value
@@ -130,7 +236,23 @@ GROUP BY Product.Name
 ORDER BY Total_Sale_Value DESC;
 ```
 
-### 7. Единый список клиентов (UNION + NULL)
+### Задание 7. Единый список клиентов (UNION + NULL)
+**Условие:**
+Соберите единый список клиентов:
+- физических лиц,
+- организаций.
+
+Требования:
+- для физлиц вывести ФИО,
+- для организаций вывести название,
+- объединить выборки через `UNION`,
+- обработать `NULL` в среднем имени через `ISNULL`.
+
+Результат должен содержать колонки:
+- `CustomerID`,
+- `DisplayName`.
+
+**Ответ:**
 ```sql
 SELECT c.CustomerID,
        p.FirstName + ' ' + ISNULL(p.MiddleName + ' ', '') + p.LastName AS DisplayName
