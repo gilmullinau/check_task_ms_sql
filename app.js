@@ -1,0 +1,1450 @@
+(function () {
+  const hasDayConfig = Array.isArray(window.TASK_DAYS) && window.TASK_DAYS.length;
+  const rawDays = hasDayConfig
+    ? window.TASK_DAYS
+    : [
+        {
+          id: 'default',
+          label: 'Все задания',
+          title: 'Все задания',
+          description: '',
+          tasks: Array.isArray(window.TASKS) ? window.TASKS : [],
+        },
+      ];
+
+  const days = rawDays.map((day) => ({
+    id: day.id,
+    label: day.label || day.title || day.id,
+    title: day.title || day.label || day.id,
+    description: day.description || '',
+    tasks: (day.tasks || []).map((task) => ({ ...task, dayId: task.dayId || day.id })),
+  }));
+
+  const allTasks = days.flatMap((day) => day.tasks);
+  const STORAGE_KEY = 'ms-sql-practice-progress';
+
+  const state = {
+    SQL: null,
+    db: null,
+    baseBytes: null,
+    days,
+    allTasks,
+    tasks: days[0] ? days[0].tasks : [],
+    currentDayId: days[0] ? days[0].id : null,
+    currentTaskId: null,
+    progress: {},
+    expectedCache: {},
+  };
+
+  const elements = {};
+
+  document.addEventListener('DOMContentLoaded', () => {
+    cacheElements();
+    if (!state.allTasks.length) {
+      displayFatalError('Не удалось загрузить список заданий. Проверьте файл tasks.js.');
+      return;
+    }
+    bootstrap().catch((error) => {
+      console.error(error);
+      displayFatalError('Произошла критическая ошибка при инициализации приложения.');
+    });
+  });
+
+  function cacheElements() {
+    elements.taskList = document.getElementById('task-list');
+    elements.daySwitcher = document.getElementById('day-switcher');
+    elements.statTotal = document.getElementById('stat-total');
+    elements.statComplete = document.getElementById('stat-complete');
+    elements.statScore = document.getElementById('stat-score');
+    elements.resetButton = document.getElementById('reset-progress');
+    elements.taskNumber = document.getElementById('task-number');
+    elements.taskTitle = document.getElementById('task-title');
+    elements.taskDescription = document.getElementById('task-description');
+    elements.sqlInput = document.getElementById('sql-input');
+    elements.runButton = document.getElementById('run-sql');
+    elements.showSolutionButton = document.getElementById('show-solution');
+    elements.statusIndicator = document.getElementById('status-indicator');
+    elements.feedback = document.getElementById('feedback');
+    elements.scoreBreakdown = document.getElementById('score-breakdown');
+    elements.userResult = document.getElementById('user-result');
+    elements.expectedResult = document.getElementById('expected-result');
+    elements.solutionPanel = document.getElementById('solution-panel');
+    elements.solutionSql = document.getElementById('solution-sql');
+    elements.attemptInfo = document.getElementById('attempt-info');
+    elements.bestScore = document.getElementById('best-score');
+  }
+
+  function decodeBase64ToBytes(base64) {
+    const normalized = (base64 || '').replace(/\s+/g, '');
+    if (!normalized) {
+      throw new Error('Пустая строка Base64 для базы данных.');
+    }
+    const binaryString = atob(normalized);
+    const length = binaryString.length;
+    const bytes = new Uint8Array(length);
+    for (let index = 0; index < length; index += 1) {
+      bytes[index] = binaryString.charCodeAt(index);
+    }
+    return bytes;
+  }
+
+  async function bootstrap() {
+    elements.statTotal.textContent = state.allTasks.length.toString();
+    loadProgress();
+    renderStats();
+    renderDayTabs();
+    renderTaskList();
+    attachEventListeners();
+
+    setStatus('Загрузка sql.js…', 'status-warning');
+    state.SQL = await initSqlJs({
+      locateFile: (file) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`,
+    });
+
+    setStatus('Загрузка базы данных…', 'status-warning');
+    await loadDatabase();
+    setStatus('База данных загружена', 'status-success');
+
+    const firstTask = state.tasks[0];
+    if (firstTask) {
+      selectTask(firstTask.id);
+    }
+  }
+
+  function attachEventListeners() {
+    if (elements.daySwitcher) {
+      elements.daySwitcher.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-day-id]');
+        if (!button) return;
+        selectDay(button.dataset.dayId);
+      });
+    }
+
+    elements.taskList.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-task-id]');
+      if (!button) return;
+      const taskId = button.dataset.taskId;
+      if (taskId && taskId !== state.currentTaskId) {
+        selectTask(taskId);
+      }
+    });
+
+    elements.runButton.addEventListener('click', () => {
+      runCurrentTask();
+    });
+
+    elements.sqlInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        runCurrentTask();
+      }
+    });
+
+    elements.showSolutionButton.addEventListener('click', () => {
+      toggleSolution(true);
+    });
+
+    elements.resetButton.addEventListener('click', () => {
+      resetProgress();
+    });
+
+  }
+
+  async function loadDatabase() {
+    if (typeof window !== 'undefined' && window.SAMPLE_DB_BASE64) {
+      state.baseBytes = decodeBase64ToBytes(window.SAMPLE_DB_BASE64);
+      state.db = new state.SQL.Database(state.baseBytes.slice());
+      applyCompatibilityPatches(state.db);
+      return;
+    }
+
+    const response = await fetch('db/sample.db');
+    if (!response.ok) {
+      throw new Error('Не удалось загрузить sample.db');
+    }
+    const buffer = await response.arrayBuffer();
+    state.baseBytes = new Uint8Array(buffer);
+    state.db = new state.SQL.Database(state.baseBytes.slice());
+    applyCompatibilityPatches(state.db);
+  }
+
+  function resetDatabase() {
+    if (state.db) {
+      try {
+        state.db.close();
+      } catch (error) {
+        console.warn('Не удалось корректно закрыть базу данных', error);
+      }
+    }
+    state.db = new state.SQL.Database(state.baseBytes.slice());
+    applyCompatibilityPatches(state.db);
+  }
+
+  function applyCompatibilityPatches(targetDb) {
+    const dbInstance = targetDb || state.db;
+    if (!dbInstance) return;
+    const statements = [
+      `DROP VIEW IF EXISTS Sales_vIndividualCustomer;`,
+      `CREATE VIEW Sales_vIndividualCustomer AS
+SELECT c.CustomerID,
+       p.BusinessEntityID AS PersonID,
+       p.Title,
+       p.FirstName,
+       p.MiddleName,
+       p.LastName
+FROM Sales_Customer AS c
+JOIN Person_Person AS p ON p.BusinessEntityID = c.PersonID
+WHERE c.PersonID IS NOT NULL;`,
+      `DROP VIEW IF EXISTS Sales_vStoreWithAddresses;`,
+      `CREATE VIEW Sales_vStoreWithAddresses AS
+SELECT cust.CustomerID,
+       store.Name,
+       addr.AddressLine1,
+       addr.City,
+       addr.CountryRegionName
+FROM Sales_Customer AS cust
+JOIN Sales_Store AS store ON store.BusinessEntityID = cust.StoreID
+JOIN Sales_StoreAddress AS sa ON sa.StoreID = store.BusinessEntityID
+JOIN Person_Address AS addr ON addr.AddressID = sa.AddressID
+WHERE cust.StoreID IS NOT NULL;`,
+      `DROP TABLE IF EXISTS Analytics_SalesPersonYear;`,
+      `CREATE TABLE Analytics_SalesPersonYear AS
+WITH PersonYearSales AS (
+  SELECT soh.SalesPersonID,
+         CAST(strftime('%Y', soh.OrderDate) AS INTEGER) AS SalesYear,
+         SUM(soh.SubTotal) AS TotalByPersonYear
+  FROM Sales_SalesOrderHeader AS soh
+  WHERE soh.SalesPersonID IS NOT NULL
+  GROUP BY soh.SalesPersonID, CAST(strftime('%Y', soh.OrderDate) AS INTEGER)
+),
+YearTotals AS (
+  SELECT SalesYear,
+         SUM(TotalByPersonYear) AS TotalByYear
+  FROM PersonYearSales
+  GROUP BY SalesYear
+),
+PersonNames AS (
+  SELECT sp.BusinessEntityID AS SalesPersonID,
+         per.FirstName || ' ' || IFNULL(per.MiddleName || ' ', '') || per.LastName AS FullName
+  FROM Sales_SalesPerson AS sp
+  JOIN Person_Person AS per ON per.BusinessEntityID = sp.BusinessEntityID
+)
+SELECT pys.SalesPersonID,
+       COALESCE(pn.FullName, 'Unknown') AS FullName,
+       pys.SalesYear,
+       pys.TotalByPersonYear,
+       ROUND(pys.TotalByPersonYear * 100.0 / yt.TotalByYear, 2) AS PercentInYear
+FROM PersonYearSales AS pys
+JOIN YearTotals AS yt ON yt.SalesYear = pys.SalesYear
+LEFT JOIN PersonNames AS pn ON pn.SalesPersonID = pys.SalesPersonID
+ORDER BY pys.SalesYear, PercentInYear DESC, pys.SalesPersonID;`,
+      `CREATE INDEX IF NOT EXISTS idx_analytics_salespersonyear_year ON Analytics_SalesPersonYear (SalesYear);`,
+    ];
+
+    try {
+      statements.forEach((sql) => dbInstance.run(sql));
+    } catch (error) {
+      console.warn('Не удалось применить совместимые представления', error);
+    }
+  }
+
+  function loadProgress() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (typeof data === 'object' && data) {
+          state.progress = data;
+        }
+      }
+    } catch (error) {
+      console.warn('Не удалось загрузить прогресс из localStorage', error);
+      state.progress = {};
+    }
+  }
+
+  function saveProgress() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.progress));
+    } catch (error) {
+      console.warn('Не удалось сохранить прогресс', error);
+    }
+  }
+
+  function renderTaskList() {
+    elements.taskList.innerHTML = '';
+    if (!state.tasks.length) {
+      const empty = document.createElement('li');
+      empty.className = 'task-list__empty';
+      empty.textContent = 'Для выбранного дня нет заданий.';
+      elements.taskList.appendChild(empty);
+      return;
+    }
+
+    state.tasks.forEach((task, index) => {
+      const item = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'task-list__item';
+      button.dataset.taskId = task.id;
+      if (task.id === state.currentTaskId) {
+        button.classList.add('task-list__item--active');
+      }
+
+      const progress = state.progress[task.id] || { attempts: 0, bestScore: 0 };
+      const icon = progress.bestScore >= 4 ? '✅' : progress.bestScore > 0 ? '🟡' : '⬜️';
+      const bestText = progress.bestScore ? `${progress.bestScore} / 4` : '0 / 4';
+
+      button.innerHTML = `
+        <div class="task-list__title">
+          <span>Задание ${index + 1}</span>
+          <span>${escapeHtml(task.title)}</span>
+        </div>
+        <div class="task-list__score">${icon} ${bestText}</div>
+      `;
+
+      item.appendChild(button);
+      elements.taskList.appendChild(item);
+    });
+  }
+
+  function selectDay(dayId) {
+    if (state.currentDayId === dayId) return;
+    const day = state.days.find((item) => item.id === dayId);
+    if (!day) return;
+    state.currentDayId = dayId;
+    state.tasks = day.tasks;
+    state.currentTaskId = null;
+    renderDayTabs();
+    renderTaskList();
+    renderStats();
+    if (state.tasks.length) {
+      selectTask(state.tasks[0].id);
+    } else {
+      clearTaskContext();
+    }
+  }
+
+  function renderDayTabs() {
+    if (!elements.daySwitcher) return;
+    if (state.days.length <= 1) {
+      elements.daySwitcher.classList.add('hidden');
+      elements.daySwitcher.innerHTML = '';
+      return;
+    }
+
+    elements.daySwitcher.classList.remove('hidden');
+    elements.daySwitcher.innerHTML = state.days
+      .map((day) => {
+        const activeClass = day.id === state.currentDayId ? 'day-switcher__button--active' : '';
+        return `
+          <button type="button" class="day-switcher__button ${activeClass}" data-day-id="${day.id}">
+            ${escapeHtml(day.label || day.title)}
+          </button>
+        `;
+      })
+      .join('');
+  }
+
+  function clearTaskContext() {
+    elements.taskNumber.textContent = 'Задание';
+    elements.taskTitle.textContent = '';
+    elements.taskDescription.innerHTML = '';
+    elements.sqlInput.value = '';
+    elements.feedback.textContent = '';
+    elements.scoreBreakdown.innerHTML = '';
+    clearResultTables();
+    setStatus('Выберите задание', 'status-warning');
+    elements.solutionPanel.classList.add('hidden');
+    elements.solutionSql.textContent = '';
+    elements.showSolutionButton.disabled = true;
+    elements.attemptInfo.textContent = '';
+    elements.bestScore.textContent = '';
+  }
+
+  function selectTask(taskId) {
+    const task = state.tasks.find((item) => item.id === taskId);
+    if (!task) return;
+
+    state.currentTaskId = taskId;
+    renderTaskList();
+
+    const day = state.days.find((item) => item.id === task.dayId);
+    const dayTasks = day ? day.tasks : state.tasks;
+    const index = dayTasks.findIndex((item) => item.id === taskId);
+    const dayPrefix = day ? `${day.label || day.title} · ` : '';
+    elements.taskNumber.textContent = `${dayPrefix}Задание ${index + 1}`;
+    elements.taskTitle.textContent = task.title;
+    elements.taskDescription.innerHTML = task.description;
+
+    const progress = getProgress(taskId);
+    elements.sqlInput.value = progress.lastSql ?? task.starterSql ?? '';
+    elements.sqlInput.focus();
+
+    elements.feedback.textContent = '';
+    elements.scoreBreakdown.innerHTML = '';
+    clearResultTables();
+    setStatus('Готово к проверке', 'status-success');
+    toggleSolution(false);
+
+    updateAttemptInfo(taskId);
+    updateBestScore(taskId);
+    updateSolutionButton(taskId);
+  }
+
+  function updateAttemptInfo(taskId) {
+    const progress = getProgress(taskId);
+    const attempts = progress.attempts || 0;
+    elements.attemptInfo.textContent = `Попыток: ${attempts}`;
+  }
+
+  function updateBestScore(taskId) {
+    const best = getProgress(taskId).bestScore || 0;
+    elements.bestScore.textContent = `Лучший результат: ${best} / 4`; 
+  }
+
+  function updateSolutionButton(taskId) {
+    const progress = getProgress(taskId);
+    const canShow = progress.attempts >= 3 || progress.solutionRevealed;
+    elements.showSolutionButton.disabled = !canShow;
+  }
+
+  function clearResultTables() {
+    renderTable(elements.userResult, null);
+    renderTable(elements.expectedResult, null);
+  }
+
+  function getProgress(taskId) {
+    if (!state.progress[taskId]) {
+      state.progress[taskId] = {
+        attempts: 0,
+        bestScore: 0,
+        lastSql: '',
+        solutionRevealed: false,
+      };
+    }
+    return state.progress[taskId];
+  }
+
+  async function runCurrentTask() {
+    if (!state.db) {
+      setStatus('База данных еще не готова', 'status-warning');
+      return;
+    }
+
+    const task = state.tasks.find((item) => item.id === state.currentTaskId);
+    if (!task) return;
+
+    const sql = elements.sqlInput.value.trim();
+    const progress = getProgress(task.id);
+    progress.attempts += 1;
+    progress.lastSql = sql;
+    saveProgress();
+    updateAttemptInfo(task.id);
+    updateSolutionButton(task.id);
+
+    if (!sql) {
+      setStatus('Введите SQL-запрос', 'status-warning');
+      elements.feedback.innerHTML = '❌ Запрос не должен быть пустым.';
+      renderScore({ execution: 0, structure: 0, data: 0, total: 0 });
+      return;
+    }
+
+    setStatus('Выполнение запроса…', 'status-warning');
+
+    const isTemplateVerification = task.verification && task.verification.type === 'templateMatch';
+    const execution = isTemplateVerification
+      ? { success: true, result: null, sql: '', rawSql: sql }
+      : executeUserSql(sql);
+
+    let expectedResult = null;
+    if (task.referenceSql) {
+      expectedResult = await getExpectedResult(task);
+    }
+
+    const evaluation = await evaluateTask(task, execution, expectedResult);
+
+    const score = computeScore(execution.success, evaluation.structureMatch, evaluation.dataMatch);
+    progress.bestScore = Math.max(progress.bestScore || 0, score);
+    saveProgress();
+
+    renderTaskList();
+    renderStats();
+
+    renderEvaluation(task, execution, evaluation, score);
+  }
+
+  function executeUserSql(rawSql) {
+    const processedSql = preprocessSql(rawSql);
+    if (!processedSql.trim()) {
+      return { success: false, error: new Error('После преобразований запрос пуст.'), result: null };
+    }
+
+    try {
+      const execResult = state.db.exec(processedSql);
+      const result = extractLastResult(execResult);
+      return { success: true, result, execResult, sql: processedSql, rawSql };
+    } catch (error) {
+      return { success: false, error, result: null, rawSql };
+    }
+  }
+
+  async function evaluateTask(task, execution, expectedResult) {
+    const evaluation = {
+      structureMatch: false,
+      dataMatch: false,
+      messages: [],
+      expectedResult,
+      userResult: execution.result,
+    };
+
+    if (task.verification && task.verification.type === 'templateMatch') {
+      const templateResult = evaluateTemplateMatch(task.verification, execution.rawSql || '');
+      evaluation.structureMatch = templateResult.match;
+      evaluation.dataMatch = templateResult.match;
+      evaluation.messages.push(...templateResult.messages);
+      evaluation.expectedResult = templateResult.expectedResult;
+      evaluation.userResult = templateResult.userResult;
+      return evaluation;
+    }
+
+    if (!execution.success) {
+      evaluation.messages.push(`Ошибка выполнения: ${execution.error.message || execution.error}`);
+      return evaluation;
+    }
+
+    if (task.verification && task.verification.type === 'viewColumn') {
+      const result = evaluateViewColumns(task.verification, execution.sql);
+      evaluation.structureMatch = result.structureMatch;
+      evaluation.dataMatch = result.dataMatch;
+      evaluation.messages.push(...result.messages);
+      evaluation.expectedResult = result.expectedResult;
+      evaluation.userResult = result.userResult;
+      return evaluation;
+    }
+
+    if (!execution.result) {
+      evaluation.messages.push('Запрос не вернул результирующий набор данных.');
+      return evaluation;
+    }
+
+    if (!expectedResult) {
+      evaluation.messages.push('Не найден эталонный результат для сравнения.');
+      return evaluation;
+    }
+
+    const comparison = compareResultSets(execution.result, expectedResult, task.comparison);
+    evaluation.structureMatch = comparison.structure;
+    evaluation.dataMatch = comparison.values;
+    evaluation.messages.push(...comparison.messages);
+    return evaluation;
+  }
+
+  function evaluateViewColumns(config, executedSql = '') {
+    const messages = [];
+    let structureMatch = true;
+    let dataMatch = true;
+    const expectedRows = [];
+    const actualRows = [];
+
+    const requiredViews = Array.isArray(config.requiredViews) ? config.requiredViews : [];
+    if (requiredViews.length) {
+      const normalizedSql = executedSql.toLowerCase();
+      const missing = [];
+      requiredViews.forEach((view) => {
+        const mapped = mapIdentifier(view).toLowerCase();
+        const regex = new RegExp(`create\\s+view\\s+${mapped}\\b`, 'i');
+        if (!regex.test(normalizedSql)) {
+          missing.push(view);
+        }
+      });
+      if (missing.length) {
+        structureMatch = false;
+        dataMatch = false;
+        messages.push(
+          `Не обнаружены команды <code>ALTER/CREATE VIEW</code> для: ${missing.map(escapeHtml).join(', ')}. ` +
+            'Выполните скрипт изменения представлений перед проверкой.'
+        );
+      }
+    }
+
+    config.checks.forEach((check) => {
+      const viewName = mapIdentifier(check.view);
+      try {
+        const info = state.db.exec(`PRAGMA table_info(${viewName})`);
+        const columns = info[0]?.values?.map((row) => String(row[1]).toLowerCase()) || [];
+        if (!columns.includes(check.column.toLowerCase())) {
+          structureMatch = false;
+          dataMatch = false;
+          messages.push(`В представлении <code>${escapeHtml(check.view)}</code> не найдена колонка <code>${escapeHtml(check.column)}</code>.`);
+          return;
+        }
+
+        const actual = state.db.exec(`SELECT ${check.column} FROM ${viewName} ORDER BY ${check.column}`);
+        const resultSet = extractLastResult(actual);
+        if (!resultSet) {
+          structureMatch = false;
+          dataMatch = false;
+          messages.push(`Не удалось получить данные из <code>${escapeHtml(check.view)}</code>.`);
+          return;
+        }
+        const values = resultSet.values.map((row) => row[0]);
+        const expectedValues = Array.isArray(check.expectedValues) ? check.expectedValues : [];
+
+        expectedValues.forEach((value) => {
+          expectedRows.push([check.view, value]);
+        });
+        values.forEach((value) => {
+          actualRows.push([check.view, value]);
+        });
+
+        if (!values.length) {
+          dataMatch = false;
+          messages.push(`Колонка <code>${escapeHtml(check.column)}</code> в представлении <code>${escapeHtml(check.view)}</code> не содержит значений.`);
+        }
+
+        if (expectedValues.length) {
+          const normalizedActual = new Set(values.map((value) => (value === null || value === undefined ? 'NULL' : String(value))));
+          const missing = expectedValues
+            .map((value) => (value === null || value === undefined ? 'NULL' : String(value)))
+            .filter((key) => !normalizedActual.has(key));
+          if (missing.length) {
+            dataMatch = false;
+            messages.push(`В результатах <code>${escapeHtml(check.view)}</code> отсутствуют ожидаемые значения: ${missing.map(escapeHtml).join(', ')}.`);
+          }
+        }
+      } catch (error) {
+        structureMatch = false;
+        dataMatch = false;
+        messages.push(`Ошибка при проверке представления <code>${escapeHtml(check.view)}</code>: ${escapeHtml(error.message || String(error))}`);
+      }
+    });
+
+    const expectedResult = {
+      columns: ['View', 'CustomerID'],
+      values: expectedRows,
+    };
+    const userResult = {
+      columns: ['View', 'CustomerID'],
+      values: actualRows,
+    };
+
+    if (!messages.length && structureMatch && dataMatch) {
+      messages.push('Представления успешно обновлены и содержат нужные значения CustomerID.');
+    }
+
+    return {
+      structureMatch,
+      dataMatch,
+      messages,
+      expectedResult,
+      userResult,
+    };
+  }
+
+  function evaluateTemplateMatch(config, rawSql) {
+    const template = config.template || '';
+    const normalizedUser = normalizeTemplateSql(rawSql);
+    const normalizedTemplate = normalizeTemplateSql(template);
+    const match = normalizedUser && normalizedTemplate && normalizedUser === normalizedTemplate;
+
+    const messages = [];
+    if (match) {
+      messages.push('Текст процедуры совпадает с эталоном.');
+    } else {
+      messages.push('SQL должен соответствовать эталонному шаблону процедуры.');
+    }
+
+    return {
+      match,
+      messages,
+      expectedResult: buildTextTable('Эталонный шаблон', template),
+      userResult: buildTextTable('Ваш SQL', rawSql || '(пусто)'),
+    };
+  }
+
+  function normalizeTemplateSql(input) {
+    if (!input) return '';
+    let text = input.replace(/--.*$/gm, ' ');
+    text = text.replace(/\/\*[\s\S]*?\*\//g, ' ');
+    text = text.replace(/\bGO\b/gi, ' ');
+    text = text.replace(/\s+/g, ' ');
+    text = text.replace(/;\s*$/g, '');
+    return text.trim().toUpperCase();
+  }
+
+  function buildTextTable(title, text) {
+    const normalized = (text || '').replace(/\r\n/g, '\n');
+    const rows = normalized
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .filter((line) => line.length)
+      .map((line) => [line]);
+    return {
+      columns: [title || 'Текст'],
+      values: rows,
+    };
+  }
+
+  function extractLastResult(execResult) {
+    if (!Array.isArray(execResult) || execResult.length === 0) return null;
+    const last = execResult[execResult.length - 1];
+    if (!last || !last.columns) return null;
+    return {
+      columns: last.columns,
+      values: last.values || [],
+    };
+  }
+
+  function computeScore(executionSuccess, structureMatch, dataMatch) {
+    let total = 0;
+    if (executionSuccess) total += 1;
+    if (structureMatch) total += 1;
+    if (dataMatch) total += 2;
+    return total;
+  }
+
+  function renderEvaluation(task, execution, evaluation, score) {
+    const executionSuccess = execution.success;
+    const total = score;
+    const structurePoints = evaluation.structureMatch ? 1 : 0;
+    const dataPoints = evaluation.dataMatch ? 2 : 0;
+
+    renderScore({
+      execution: executionSuccess ? 1 : 0,
+      structure: structurePoints,
+      data: dataPoints,
+      total,
+    });
+
+    let message = '';
+    let statusClass = 'status-warning';
+
+    if (!executionSuccess) {
+      message = `❌ Ошибка выполнения: ${escapeHtml(evaluation.messages[0] || execution.error.message || String(execution.error))}`;
+      statusClass = 'status-error';
+    } else if (evaluation.structureMatch && evaluation.dataMatch) {
+      message = '✅ Отлично! Результат полностью совпал с эталоном.';
+      statusClass = 'status-success';
+    } else if (!evaluation.structureMatch) {
+      message = '⚠️ Структура результата отличается от ожидаемой.';
+    } else {
+      message = '⚠️ Данные результата не совпадают с эталоном.';
+    }
+
+    elements.feedback.innerHTML = message;
+    setStatus(message.replace(/^[^ ]+ /, ''), statusClass);
+
+    const detailMessages = (evaluation.messages || [])
+      .map((msg) => (typeof msg === 'string' ? msg : String(msg)))
+      .filter((msg) => msg && !message.includes(msg));
+    if (detailMessages.length) {
+      const details = document.createElement('div');
+      detailMessages.forEach((msg) => {
+        const paragraph = document.createElement('p');
+        paragraph.innerHTML = msg;
+        details.appendChild(paragraph);
+      });
+      elements.feedback.appendChild(details);
+    }
+
+    const userResult = evaluation.userResult || execution.result;
+    renderTable(elements.userResult, userResult);
+
+    const expectedResult = evaluation.expectedResult || null;
+    renderTable(elements.expectedResult, expectedResult);
+  }
+
+  function renderScore({ execution, structure, data, total }) {
+    elements.scoreBreakdown.innerHTML = `
+      <div class="score__item">
+        <span>Выполнение</span>
+        <strong>${execution} / 1</strong>
+      </div>
+      <div class="score__item">
+        <span>Структура</span>
+        <strong>${structure} / 1</strong>
+      </div>
+      <div class="score__item">
+        <span>Данные</span>
+        <strong>${data} / 2</strong>
+      </div>
+      <div class="score__item">
+        <span>Итого</span>
+        <strong>${total} / 4</strong>
+      </div>
+    `;
+  }
+
+  function renderTable(container, result) {
+    if (!result || !result.columns || !Array.isArray(result.columns)) {
+      container.classList.add('empty');
+      container.innerHTML = 'Нет данных';
+      return;
+    }
+
+    container.classList.remove('empty');
+
+    const headers = result.columns.map((column) => `<th>${escapeHtml(String(column))}</th>`).join('');
+    const rows = result.values
+      .map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(formatValue(value))}</td>`).join('')}</tr>`)
+      .join('');
+
+    container.innerHTML = `
+      <table>
+        <thead><tr>${headers}</tr></thead>
+        <tbody>${rows || '<tr><td colspan="' + result.columns.length + '">Нет строк</td></tr>'}</tbody>
+      </table>
+    `;
+  }
+
+  function renderStats() {
+    let totalScore = 0;
+    let completed = 0;
+    state.allTasks.forEach((task) => {
+      const progress = state.progress[task.id];
+      if (!progress) return;
+      totalScore += progress.bestScore || 0;
+      if ((progress.bestScore || 0) >= 4) {
+        completed += 1;
+      }
+    });
+    elements.statScore.textContent = totalScore.toString();
+    elements.statComplete.textContent = completed.toString();
+  }
+
+  function toggleSolution(show) {
+    if (!state.currentTaskId) return;
+    const task = state.tasks.find((item) => item.id === state.currentTaskId);
+    if (!task || !task.solutionSql) return;
+
+    if (show) {
+      elements.solutionSql.textContent = task.solutionSql;
+      elements.solutionPanel.classList.remove('hidden');
+      const progress = getProgress(task.id);
+      progress.solutionRevealed = true;
+      elements.showSolutionButton.disabled = false;
+      saveProgress();
+    } else {
+      elements.solutionPanel.classList.add('hidden');
+      elements.solutionSql.textContent = '';
+    }
+  }
+
+  function resetProgress() {
+    if (!confirm('Сбросить прогресс и вернуть базу данных в исходное состояние?')) {
+      return;
+    }
+    state.progress = {};
+    state.expectedCache = {};
+    saveProgress();
+    resetDatabase();
+    renderTaskList();
+    renderStats();
+    if (state.currentTaskId) {
+      selectTask(state.currentTaskId);
+    }
+  }
+
+  function getExpectedResult(task) {
+    if (state.expectedCache[task.id]) {
+      return state.expectedCache[task.id];
+    }
+    const referenceDb = new state.SQL.Database(state.baseBytes.slice());
+    applyCompatibilityPatches(referenceDb);
+    const sql = preprocessSql(task.referenceSql);
+    const exec = referenceDb.exec(sql);
+    referenceDb.close();
+    const result = extractLastResult(exec);
+    state.expectedCache[task.id] = result;
+    return result;
+  }
+
+  function compareResultSets(userResult, expectedResult, options = {}) {
+    const messages = [];
+    const structure = compareStructure(userResult, expectedResult, messages, options);
+    if (!structure) {
+      return { structure: false, values: false, messages };
+    }
+
+    const unordered = Boolean(options.unordered);
+    const tolerance = typeof options.numericTolerance === 'number' ? options.numericTolerance : 1e-6;
+
+    const userRows = userResult.values.map((row) => normalizeRow(row));
+    const expectedRows = expectedResult.values.map((row) => normalizeRow(row));
+
+    if (unordered) {
+      userRows.sort(rowComparator);
+      expectedRows.sort(rowComparator);
+    }
+
+    if (userRows.length !== expectedRows.length) {
+      messages.push(`Количество строк не совпадает: получено ${escapeHtml(userRows.length)}, ожидается ${escapeHtml(expectedRows.length)}.`);
+      return { structure: true, values: false, messages };
+    }
+
+    for (let i = 0; i < expectedRows.length; i += 1) {
+      const expectedRow = expectedRows[i];
+      const userRow = userRows[i];
+      for (let j = 0; j < expectedRow.length; j += 1) {
+        if (!valuesEqual(userRow[j], expectedRow[j], tolerance)) {
+          messages.push(`Несовпадение данных в строке ${i + 1}, колонке <code>${escapeHtml(userResult.columns[j])}</code>: получено ${escapeHtml(formatValue(userRow[j]))}, ожидается ${escapeHtml(formatValue(expectedRow[j]))}.`);
+          return { structure: true, values: false, messages };
+        }
+      }
+    }
+
+    messages.push('Результат совпадает с эталоном.');
+    return { structure: true, values: true, messages };
+  }
+
+  function compareStructure(userResult, expectedResult, messages, options = {}) {
+    if (!userResult || !expectedResult) {
+      messages.push('Не удалось получить результаты для сравнения.');
+      return false;
+    }
+
+    if (userResult.columns.length !== expectedResult.columns.length) {
+      messages.push(`Ожидалось ${expectedResult.columns.length} колонок, получено ${userResult.columns.length}.`);
+      return false;
+    }
+
+    const ignoreNames = Boolean(options.ignoreColumnNames);
+    if (!ignoreNames) {
+      for (let i = 0; i < expectedResult.columns.length; i += 1) {
+        const expectedName = String(expectedResult.columns[i]).toLowerCase();
+        const actualName = String(userResult.columns[i]).toLowerCase();
+        if (expectedName !== actualName) {
+          messages.push(
+            `Название колонки №${i + 1} отличается: ожидается <code>${escapeHtml(expectedResult.columns[i])}</code>, получено <code>${escapeHtml(userResult.columns[i])}</code>.`,
+          );
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function normalizeRow(row) {
+    return row.map((value) => {
+      if (value === null || value === undefined) return null;
+      if (typeof value === 'number') return Number(value);
+      return String(value);
+    });
+  }
+
+  function rowComparator(a, b) {
+    const len = Math.max(a.length, b.length);
+    for (let i = 0; i < len; i += 1) {
+      const av = a[i];
+      const bv = b[i];
+      if (av === bv) continue;
+      if (av === null) return -1;
+      if (bv === null) return 1;
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return av - bv;
+      }
+      return String(av).localeCompare(String(bv), 'ru');
+    }
+    return 0;
+  }
+
+  function valuesEqual(actual, expected, tolerance) {
+    if (actual === null || expected === null) {
+      return actual === expected;
+    }
+    if (typeof actual === 'number' && typeof expected === 'number') {
+      return Math.abs(actual - expected) <= tolerance;
+    }
+    return String(actual) === String(expected);
+  }
+
+  function preprocessSql(sql) {
+    let text = sql.replace(/\r\n/g, '\n');
+    text = text.replace(/^\s*GO\s*$/gim, ';');
+    text = text.replace(/\[([^\]]+)\]/g, '$1');
+
+    const context = {
+      pendingMostRecOrders: false,
+      pendingSalesByYear: false,
+      usedMostRecOrders: false,
+      usedSalesByYearExec: false,
+    };
+
+    text = stripProgrammableBlocks(text, context);
+
+    const statements = splitStatements(text);
+    const transformed = [];
+    statements.forEach((statement) => {
+      const outputs = transformStatement(statement, context);
+      outputs.forEach((item) => {
+        if (item.trim()) {
+          transformed.push(item.trim());
+        }
+      });
+    });
+
+    if (context.pendingMostRecOrders && !context.usedMostRecOrders) {
+      transformed.push(finalizeSql(buildMostRecOrdersPreview()));
+    }
+
+    if (context.pendingSalesByYear && !context.usedSalesByYearExec) {
+      transformed.push(finalizeSql(buildSalesByYearQuery()));
+    }
+
+    const normalizedStatements = [];
+    transformed.forEach((statement) => {
+      const trimmed = statement.trim();
+      if (/^EXEC/i.test(trimmed)) {
+        const expanded = expandExecStatement(trimmed, context);
+        if (expanded) {
+          normalizedStatements.push(expanded);
+          return;
+        }
+      }
+      normalizedStatements.push(trimmed);
+    });
+
+    return normalizedStatements.join('; ');
+  }
+
+  function splitStatements(sql) {
+    const statements = [];
+    let current = '';
+    let inSingle = false;
+    let inDouble = false;
+
+    for (let i = 0; i < sql.length; i += 1) {
+      const char = sql[i];
+      const next = sql[i + 1];
+
+      if (char === "'" && !inDouble) {
+        current += char;
+        if (inSingle && next === "'") {
+          current += next;
+          i += 1;
+        } else {
+          inSingle = !inSingle;
+        }
+        continue;
+      }
+
+      if (char === '"' && !inSingle) {
+        current += char;
+        if (inDouble && next === '"') {
+          current += next;
+          i += 1;
+        } else {
+          inDouble = !inDouble;
+        }
+        continue;
+      }
+
+      if (char === ';' && !inSingle && !inDouble) {
+        if (current.trim()) {
+          statements.push(current.trim());
+        }
+        current = '';
+        continue;
+      }
+
+      current += char;
+    }
+
+    if (current.trim()) {
+      statements.push(current.trim());
+    }
+
+    return statements;
+  }
+
+  function transformStatement(statement, context) {
+    const trimmed = statement.trim();
+    if (!trimmed) return [];
+
+    const createMatch = trimmed.match(/^CREATE\s+(?:PROC|PROCEDURE|FUNCTION)\s+([^\s(]+)/i);
+    if (createMatch) {
+      registerProgrammableObject(createMatch[1], context);
+      return [];
+    }
+
+    if (/^ALTER\s+VIEW/i.test(trimmed)) {
+      const match = trimmed.match(/^ALTER\s+VIEW\s+([^\s]+)\s+AS\s+([\s\S]+)$/i);
+      if (match) {
+        const viewName = mapIdentifier(match[1]);
+        const body = adaptFunctions(normalizeIdentifiers(convertTop(match[2])));
+        return [`DROP VIEW IF EXISTS ${viewName}`, `CREATE VIEW ${viewName} AS ${body}`];
+      }
+    }
+
+    if (/^CREATE\s+VIEW/i.test(trimmed)) {
+      const match = trimmed.match(/^CREATE\s+VIEW\s+([^\s]+)\s+AS\s+([\s\S]+)$/i);
+      if (match) {
+        const viewName = mapIdentifier(match[1]);
+        const body = adaptFunctions(normalizeIdentifiers(convertTop(match[2])));
+        return [`CREATE VIEW ${viewName} AS ${body}`];
+      }
+    }
+
+    if (/^DROP\s+VIEW/i.test(trimmed)) {
+      const match = trimmed.match(/^DROP\s+VIEW\s+(IF\s+EXISTS\s+)?(.+)$/i);
+      if (match) {
+        const viewName = mapIdentifier(match[2]);
+        return [`DROP VIEW IF EXISTS ${viewName}`];
+      }
+    }
+
+    if (/^EXEC/i.test(trimmed)) {
+      const expanded = expandExecStatement(trimmed, context);
+      if (expanded) {
+        return [expanded];
+      }
+    }
+
+    if (/Sales\.MostRecOrders\s*\(/i.test(trimmed)) {
+      context.usedMostRecOrders = true;
+    }
+
+    return [finalizeSql(trimmed)];
+  }
+
+  function stripProgrammableBlocks(input, context) {
+    if (!input) return '';
+    let output = '';
+    let cursor = 0;
+    const lower = input.toLowerCase();
+    const createRegex = /create\s+(?:proc|procedure|function)\b/gi;
+
+    let match = createRegex.exec(lower);
+    while (match) {
+      const start = match.index;
+      output += input.slice(cursor, start);
+      const headerMatch = input.slice(start).match(/^CREATE\s+(?:PROC|PROCEDURE|FUNCTION)\s+([^\s(]+)/i);
+      if (headerMatch) {
+        registerProgrammableObject(headerMatch[1], context);
+      }
+      const blockEnd = findProgrammableBlockEnd(input, lower, start + (headerMatch ? headerMatch[0].length : 0));
+      cursor = blockEnd;
+      createRegex.lastIndex = blockEnd;
+      match = createRegex.exec(lower);
+    }
+
+    output += input.slice(cursor);
+    return output;
+  }
+
+  function findProgrammableBlockEnd(text, lower, start) {
+    let index = start;
+    let depth = 0;
+    let caseDepth = 0;
+    let beginFound = false;
+    let inSingle = false;
+    let inDouble = false;
+
+    while (index < text.length) {
+      const char = text[index];
+      if (char === "'" && !inDouble) {
+        if (inSingle && text[index + 1] === "'") {
+          index += 2;
+          continue;
+        }
+        inSingle = !inSingle;
+        index += 1;
+        continue;
+      }
+      if (char === '"' && !inSingle) {
+        if (inDouble && text[index + 1] === '"') {
+          index += 2;
+          continue;
+        }
+        inDouble = !inDouble;
+        index += 1;
+        continue;
+      }
+
+      if (!inSingle && !inDouble) {
+        if (lower.startsWith('begin', index)) {
+          beginFound = true;
+          depth += 1;
+          index += 5;
+          continue;
+        }
+        if (lower.startsWith('case', index)) {
+          caseDepth += 1;
+          index += 4;
+          continue;
+        }
+        if (lower.startsWith('end', index)) {
+          if (caseDepth > 0) {
+            caseDepth -= 1;
+            index += 3;
+            continue;
+          }
+          if (beginFound && depth > 0) {
+            depth -= 1;
+            index += 3;
+            if (depth === 0) {
+              while (index < text.length && /[\s]/.test(text[index])) {
+                index += 1;
+              }
+              if (text[index] === ';') {
+                index += 1;
+              }
+              while (index < text.length && /[\s;]/.test(text[index])) {
+                index += 1;
+              }
+              return index;
+            }
+            continue;
+          }
+        }
+      }
+      index += 1;
+    }
+
+    const fallback = text.indexOf(';', start);
+    return fallback === -1 ? text.length : fallback + 1;
+  }
+
+  function registerProgrammableObject(name, context) {
+    if (!name) return;
+    const normalized = name.toLowerCase();
+    if (normalized === 'sales.mostrecorders') {
+      context.pendingMostRecOrders = true;
+    }
+    if (normalized === 'sales.usp_salesbyyear') {
+      context.pendingSalesByYear = true;
+    }
+  }
+
+  function mapIdentifier(identifier) {
+    let name = identifier.trim();
+    name = name.replace(/^"|"$/g, '');
+    name = name.replace(/^\[|\]$/g, '');
+    return normalizeIdentifierName(name);
+  }
+
+  function normalizeIdentifierName(name) {
+    let result = name;
+    result = result.replace(/^Sales\./i, 'Sales_');
+    result = result.replace(/^Production\./i, 'Production_');
+    result = result.replace(/^Person\./i, 'Person_');
+    result = result.replace(/^Purchasing\./i, 'Purchasing_');
+    return result;
+  }
+
+  function normalizeIdentifiers(sql) {
+    return sql
+      .replace(/Sales\.([A-Za-z_]+)/gi, 'Sales_$1')
+      .replace(/Production\.([A-Za-z_]+)/gi, 'Production_$1')
+      .replace(/Person\.([A-Za-z_]+)/gi, 'Person_$1')
+      .replace(/Purchasing\.([A-Za-z_]+)/gi, 'Purchasing_$1');
+  }
+
+  function convertTop(statement) {
+    let result = statement;
+    let limit = null;
+
+    result = result.replace(/SELECT\s+DISTINCT\s+TOP\s*\((\d+)\)\s+/i, (match, value) => {
+      limit = Number(value);
+      return 'SELECT DISTINCT ';
+    });
+
+    result = result.replace(/SELECT\s+DISTINCT\s+TOP\s+(\d+)\s+/i, (match, value) => {
+      limit = Number(value);
+      return 'SELECT DISTINCT ';
+    });
+
+    result = result.replace(/SELECT\s+TOP\s*\((\d+)\)\s+/i, (match, value) => {
+      limit = Number(value);
+      return 'SELECT ';
+    });
+
+    result = result.replace(/SELECT\s+TOP\s+(\d+)\s+/i, (match, value) => {
+      limit = Number(value);
+      return 'SELECT ';
+    });
+
+    if (limit !== null && !/LIMIT\s+\d+/i.test(result)) {
+      result = result.replace(/;?\s*$/g, '');
+      result = `${result} LIMIT ${limit}`;
+    }
+
+    return result;
+  }
+
+  function adaptFunctions(statement) {
+    return statement
+      .replace(/STRING_AGG\s*\(/gi, 'GROUP_CONCAT(')
+      .replace(/ISNULL\s*\(/gi, 'IFNULL(')
+      .replace(/YEAR\s*\(([^)]+)\)/gi, "CAST(strftime('%Y', $1) AS INTEGER)")
+      .replace(/dbo\.udf_GetPurchaseOrderStatus\s*\(([^)]+)\)/gi, (_, expr) =>
+        `(CASE ${expr.trim()} WHEN 1 THEN 'Pending' WHEN 2 THEN 'Approved' WHEN 3 THEN 'Rejected' WHEN 4 THEN 'Complete' ELSE '** Invalid **' END)`
+      );
+  }
+
+  function expandExecStatement(statement, context) {
+    const match = statement.match(/^EXEC(?:UTE)?\s+([^\s]+)([\s\S]*)$/i);
+    if (!match) return null;
+    const procName = match[1].toLowerCase();
+    const args = (match[2] || '').trim();
+
+    if (procName === 'sales.usp_bestcustomerbyregion') {
+      const region = extractStringArgument(args, 'countryregionname') || 'Canada';
+      const escapedRegion = escapeSqlStringLiteral(region);
+      return finalizeSql(buildBestCustomerQuery(escapedRegion));
+    }
+
+    if (procName === 'sales.usp_salesbyyear') {
+      context.usedSalesByYearExec = true;
+      return finalizeSql(buildSalesByYearQuery());
+    }
+
+    return null;
+  }
+
+  function buildBestCustomerQuery(region) {
+    return `WITH StoreCustomers AS (
+  SELECT cust.CustomerID,
+         store.Name,
+         addr.CountryRegionName
+  FROM Sales.Customer AS cust
+  JOIN Sales.Store AS store ON store.BusinessEntityID = cust.StoreID
+  JOIN Sales.StoreAddress AS sa ON sa.StoreID = store.BusinessEntityID
+  JOIN Person.Address AS addr ON addr.AddressID = sa.AddressID
+  WHERE cust.StoreID IS NOT NULL
+)
+SELECT StoreCustomers.CustomerID,
+       StoreCustomers.Name,
+       SUM(SalesOrderHeader.SubTotal) AS Total
+FROM Sales.SalesOrderHeader AS SalesOrderHeader
+JOIN StoreCustomers ON StoreCustomers.CustomerID = SalesOrderHeader.CustomerID
+WHERE StoreCustomers.CountryRegionName = '${region}'
+GROUP BY StoreCustomers.CustomerID,
+         StoreCustomers.Name,
+         StoreCustomers.CountryRegionName
+ORDER BY Total DESC, StoreCustomers.CustomerID
+LIMIT 1`;
+  }
+
+  function buildSalesByYearQuery() {
+    return `SELECT SalesPersonID,
+       FullName,
+       SalesYear AS [Year],
+       TotalByPersonYear,
+       PercentInYear AS [% in Year]
+FROM Analytics_SalesPersonYear
+ORDER BY [Year], [% in Year] DESC, SalesPersonID
+LIMIT 50`;
+  }
+
+  function buildMostRecOrdersPreview() {
+    return `SELECT SalesOrderID,
+       OrderDate
+FROM Sales.SalesOrderHeader
+WHERE CustomerID = 1
+ORDER BY OrderDate DESC, SalesOrderID DESC
+LIMIT 2`;
+  }
+
+  function extractStringArgument(input, paramName) {
+    if (!input) return null;
+    if (paramName) {
+      const named = input.match(new RegExp(`@?${paramName}\s*=\s*'([^']*(?:''[^']*)*)'`, 'i'));
+      if (named) {
+        return named[1].replace(/''/g, "'");
+      }
+    }
+    const generic = input.match(/'([^']*(?:''[^']*)*)'/);
+    if (generic) {
+      return generic[1].replace(/''/g, "'");
+    }
+    return null;
+  }
+
+  function escapeSqlStringLiteral(value) {
+    return String(value).replace(/'/g, "''");
+  }
+
+  function finalizeSql(input) {
+    const converted = convertTop(input);
+    const normalized = normalizeIdentifiers(converted);
+    const applyAdapted = adaptApplyOperators(normalized);
+    return adaptFunctions(applyAdapted);
+  }
+
+  function adaptApplyOperators(sql) {
+    if (!sql) return sql;
+    const source = buildMostRecOrdersSource();
+    let transformed = sql.replace(
+      /(CROSS|OUTER)\s+APPLY\s+Sales[._]MostRecOrders\s*\(([^)]+)\)(?:\s+(?:AS\s+)?([A-Za-z_][\w]*))?/gi,
+      (_, applyType, expr, alias) => {
+        const joinType = applyType.toUpperCase() === 'OUTER' ? 'LEFT JOIN' : 'JOIN';
+        const safeAlias = alias || 'MostRecOrders';
+        return `${joinType} ${source} AS ${safeAlias} ON ${safeAlias}.CustomerID = ${expr.trim()}`;
+      }
+    );
+
+    transformed = transformed.replace(
+      /FROM\s+Sales[._]MostRecOrders\s*\(([^)]+)\)\s*(?:AS\s+)?([A-Za-z_][\w]*)?/gi,
+      (_, expr, alias) =>
+        `FROM (SELECT SalesOrderID, OrderDate FROM ${source} WHERE CustomerID = ${expr.trim()}) AS ${
+          alias || 'MostRecOrders'
+        }`
+    );
+
+    return transformed;
+  }
+
+  function buildMostRecOrdersSource() {
+    return `(
+  SELECT SalesOrderID,
+         OrderDate,
+         CustomerID
+  FROM (
+    SELECT SalesOrderID,
+           OrderDate,
+           CustomerID,
+           ROW_NUMBER() OVER (
+             PARTITION BY CustomerID
+             ORDER BY OrderDate DESC, SalesOrderID DESC
+           ) AS rn
+    FROM Sales_SalesOrderHeader
+  )
+  WHERE rn <= 2
+)`;
+  }
+
+  function setStatus(message, statusClass) {
+    elements.statusIndicator.textContent = message;
+    elements.statusIndicator.className = `controls__right ${statusClass}`;
+  }
+
+  function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function formatValue(value) {
+    if (value === null || value === undefined) return 'NULL';
+    if (typeof value === 'number') {
+      return Number.isInteger(value) ? value.toString() : value.toFixed(2).replace(/\.00$/, '');
+    }
+    return String(value);
+  }
+
+  function displayFatalError(message) {
+    document.body.innerHTML = `<div class="fatal-error">${escapeHtml(message)}</div>`;
+    const style = document.createElement('style');
+    style.textContent = `
+      body { background: #0f172a; color: #f8fafc; font-family: 'Inter', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+      .fatal-error { max-width: 480px; padding: 2rem; background: rgba(15, 23, 42, 0.85); border-radius: 16px; border: 1px solid rgba(248, 250, 252, 0.1); box-shadow: 0 18px 48px rgba(15, 23, 42, 0.35); }
+    `;
+    document.head.appendChild(style);
+  }
+})();
