@@ -391,9 +391,14 @@ LIMIT 10;`,
     dayId: 'day2',
     title: 'Единый список клиентов (UNION + NULL)',
     description: `
-      <p>Соберите единый список клиентов: физических лиц и организаций.</p>
-      <p>Для физических лиц выведите ФИО, для организаций — название. Используйте <code>UNION</code> и замену <code>NULL</code> через <code>ISNULL</code> для среднего имени.</p>
-      <p>Результат: колонки <code>CustomerID</code> и <code>DisplayName</code>.</p>
+      <p>Сделайте один общий список клиентов из двух источников:</p>
+      <ul>
+        <li>физические лица: таблицы <code>Sales.Customer</code> + <code>Person.Person</code>;</li>
+        <li>организации: таблицы <code>Sales.Customer</code> + <code>Sales.Store</code>.</li>
+      </ul>
+      <p>Для физлиц соберите ФИО в поле <code>DisplayName</code> (если <code>MiddleName</code> пустой, используйте <code>ISNULL</code>).</p>
+      <p>Для организаций в <code>DisplayName</code> выведите <code>Store.Name</code>.</p>
+      <p>Объедините обе выборки через <code>UNION</code>. Итог: колонки <code>CustomerID</code> и <code>DisplayName</code>.</p>
     `,
     starterSql: `SELECT c.CustomerID,
        p.FirstName + ' ' + ISNULL(p.MiddleName + ' ', '') + p.LastName AS DisplayName
